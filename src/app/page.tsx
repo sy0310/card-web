@@ -14,11 +14,13 @@ export default function Home() {
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
   const [isWishlistOpen, setIsWishlistOpen] = useState(false);
+  const [siteTitle, setSiteTitle] = useState('K-POP CARD');
   
   const { items } = useWishlist();
 
   useEffect(() => {
     fetchCards();
+    fetchSettings();
   }, []);
 
   useEffect(() => {
@@ -34,6 +36,16 @@ export default function Home() {
     
     if (data) setCards(data);
     setLoading(false);
+  };
+
+  const fetchSettings = async () => {
+    const { data } = await supabase
+      .from('site_settings')
+      .select('value')
+      .eq('key', 'site_title')
+      .single();
+    
+    if (data) setSiteTitle(data.value);
   };
 
   const filterCards = () => {
@@ -63,7 +75,9 @@ export default function Home() {
       <header className={styles.header}>
         <div className="glass" style={{ padding: '0.75rem 1.5rem', borderRadius: '100px', display: 'flex', gap: '2rem', alignItems: 'center' }}>
           <h1 className={styles.logo}>
-            K-POP <span style={{ color: 'var(--primary)' }}>CARD</span>
+            {siteTitle.split(' ').map((word, i) => (
+              <span key={i} style={i === siteTitle.split(' ').length - 1 ? { color: 'var(--primary)' } : {}}>{word} </span>
+            ))}
           </h1>
           <nav className={styles.topNav}>
             <button onClick={() => setIsWishlistOpen(true)} className={styles.wishlistTrigger}>

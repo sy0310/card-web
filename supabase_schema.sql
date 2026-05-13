@@ -40,6 +40,18 @@ CREATE TABLE IF NOT EXISTS wishlist_items (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- 5. Site Settings Table
+CREATE TABLE IF NOT EXISTS site_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+-- Initial Settings
+INSERT INTO site_settings (key, value) VALUES 
+('official_ig_handle', '@official_account'),
+('site_title', 'K-POP CARD')
+ON CONFLICT (key) DO NOTHING;
+
 -- RLS Policies (Row Level Security)
 
 -- Enable RLS
@@ -58,6 +70,10 @@ CREATE POLICY "Admin All Cards" ON cards FOR ALL TO authenticated USING (true);
 CREATE POLICY "Admin All Categories" ON categories FOR ALL TO authenticated USING (true);
 CREATE POLICY "Admin All Wishlists" ON wishlists FOR ALL TO authenticated USING (true);
 CREATE POLICY "Admin All Wishlist Items" ON wishlist_items FOR ALL TO authenticated USING (true);
+CREATE POLICY "Admin All Settings" ON site_settings FOR ALL TO authenticated USING (true);
+
+-- Public Read access for settings
+CREATE POLICY "Public Read Settings" ON site_settings FOR SELECT USING (true);
 
 -- Public can insert wishlists (for checkout)
 CREATE POLICY "Public Insert Wishlists" ON wishlists FOR INSERT WITH CHECK (true);

@@ -12,7 +12,23 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState(1); // 1: Input, 2: Preview & Download
   const [generatedImg, setGeneratedImg] = useState<string | null>(null);
+  const [settings, setSettings] = useState({
+    site_title: 'K-POP CARD',
+    official_ig_handle: '@official_account'
+  });
   const summaryRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    fetchSettings();
+  }, []);
+
+  const fetchSettings = async () => {
+    const { data } = await supabase.from('site_settings').select('*');
+    if (data) {
+      const s = data.reduce((acc: any, curr: any) => ({ ...acc, [curr.key]: curr.value }), {});
+      setSettings(prev => ({ ...prev, ...s }));
+    }
+  };
 
   const handleGenerate = async () => {
     if (!igHandle) return alert('Please enter your Instagram handle');
@@ -121,7 +137,7 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
         <div style={{ position: 'absolute', left: '-9999px', top: '-9999px' }}>
           <div ref={summaryRef} className={styles.summaryTemplate}>
             <div className={styles.summaryHeader}>
-              <h1>K-POP CARD</h1>
+              <h1>{settings.site_title}</h1>
               <p>WISHLIST REQUEST</p>
             </div>
             
@@ -148,7 +164,7 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
                 <span>TOTAL ESTIMATED</span>
                 <h2>${totalPrice}</h2>
               </div>
-              <p>Please DM this image to @official_account</p>
+              <p>Please DM this image to {settings.official_ig_handle}</p>
             </div>
           </div>
         </div>

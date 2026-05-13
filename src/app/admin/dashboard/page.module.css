@@ -201,6 +201,49 @@
   font-weight: 600;
 }
 
+.stockControl {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.stockControl button {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--glass-border);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.stockControl button:hover {
+  background: var(--primary);
+  color: black;
+}
+
+.stockControl span {
+  font-weight: 700;
+  min-width: 20px;
+  text-align: center;
+}
+
+.settingsCard {
+  max-width: 600px;
+  padding: 2.5rem;
+  border-radius: 24px;
+}
+
+.helpText {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 0.5rem;
+  padding-left: 0.5rem;
+}
+
 @media (max-width: 1024px) {
   .sidebar {
     width: 200px;

@@ -12,7 +12,12 @@ export default function AdminDashboard() {
   const [cards, setCards] = useState<any[]>([]);
   const [wishlists, setWishlists] = useState<any[]>([]);
   const [loadingCards, setLoadingCards] = useState(true);
-  const [activeTab, setActiveTab] = useState('inventory'); // 'inventory' or 'wishlists'
+  const [activeTab, setActiveTab] = useState('inventory'); // 'inventory', 'wishlists', 'settings'
+  const [settings, setSettings] = useState({
+    site_title: 'K-POP CARD',
+    official_ig_handle: '@official_account'
+  });
+  const [savingSettings, setSavingSettings] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -29,6 +34,7 @@ export default function AdminDashboard() {
   const fetchData = async () => {
     fetchCards();
     fetchWishlists();
+    fetchSettings();
   };
 
   const fetchCards = async () => {
@@ -42,13 +48,41 @@ export default function AdminDashboard() {
     setLoadingCards(false);
   };
 
-  const fetchWishlists = async () => {
-    const { data, error } = await supabase
-      .from('wishlists')
-      .select('*, wishlist_items(card_id, cards(*))')
-      .order('created_at', { ascending: false });
-    
     if (data) setWishlists(data);
+  };
+
+  const fetchSettings = async () => {
+    const { data, error } = await supabase
+      .from('site_settings')
+      .select('*');
+    
+    if (data) {
+      const s = data.reduce((acc: any, curr: any) => ({ ...acc, [curr.key]: curr.value }), {});
+      setSettings(prev => ({ ...prev, ...s }));
+    }
+  };
+
+  const handleSaveSettings = async () => {
+    setSavingSettings(true);
+    const updates = Object.entries(settings).map(([key, value]) => ({ key, value }));
+    
+    const { error } = await supabase
+      .from('site_settings')
+      .upsert(updates);
+    
+    if (error) alert('Error saving settings: ' + error.message);
+    else alert('Settings saved successfully!');
+    setSavingSettings(false);
+  };
+
+  const handleUpdateStock = async (cardId: string, newCount: number) => {
+    const { error } = await supabase
+      .from('cards')
+      .update({ inventory_count: Math.max(0, newCount) })
+      .eq('id', cardId);
+    
+    if (error) alert('Error updating stock: ' + error.message);
+    else fetchCards();
   };
 
   const handleLogout = async () => {
@@ -87,7 +121,12 @@ export default function AdminDashboard() {
           >
             Wishlists
           </button>
-          <button className={styles.navItem}>Settings</button>
+          <button 
+            className={`${styles.navItem} ${activeTab === 'settings' ? styles.active : ''}`}
+            onClick={() => setActiveTab('settings')}
+          >
+            Settings
+          </button>
         </nav>
         <button onClick={handleLogout} className={styles.logoutBtn}>Logout</button>
       </aside>
@@ -139,10 +178,16 @@ export default function AdminDashboard() {
                         <td>{card.title}</td>
                         <td>{card.group_name}</td>
                         <td>${card.price}</td>
-                        <td>{card.inventory_count}</td>
-                        <td>
-                          <button className={styles.editBtn}>Edit</button>
-                        </td>
+                    <td>
+                      <div className={styles.stockControl}>
+                        <button onClick={() => handleUpdateStock(card.id, card.inventory_count - 1)}>-</button>
+                        <span>{card.inventory_count}</span>
+                        <button onClick={() => handleUpdateStock(card.id, card.inventory_count + 1)}>+</button>
+                      </div>
+                    </td>
+                    <td>
+                      <button className={styles.editBtn}>Edit Info</button>
+                    </td>
                       </tr>
                     ))}
                   </tbody>
@@ -215,6 +260,44 @@ export default function AdminDashboard() {
               )}
             </div>
           </>
+        ) : (
+          <div className={styles.settingsView}>
+            <header className={styles.contentHeader}>
+              <h1>Site Settings</h1>
+            </header>
+
+            <div className={`${styles.settingsCard} glass`}>
+              <div className={styles.inputGroup}>
+                <label>Site Title</label>
+                <input 
+                  type="text" 
+                  value={settings.site_title}
+                  onChange={e => setSettings({ ...settings, site_title: e.target.value })}
+                  placeholder="e.g. MY K-POP SHOP"
+                />
+                <p className={styles.helpText}>This appears in the header and the generated wishlist image.</p>
+              </div>
+
+              <div className={styles.inputGroup}>
+                <label>Official Instagram Handle</label>
+                <input 
+                  type="text" 
+                  value={settings.official_ig_handle}
+                  onChange={e => setSettings({ ...settings, official_ig_handle: e.target.value })}
+                  placeholder="@your_ins_account"
+                />
+                <p className={styles.helpText}>Users will be instructed to DM this account with their wishlist image.</p>
+              </div>
+
+              <button 
+                className={styles.addBtn} 
+                onClick={handleSaveSettings}
+                disabled={savingSettings}
+              >
+                {savingSettings ? 'Saving...' : 'Save Settings'}
+              </button>
+            </div>
+          </div>
         )}
       </main>
     </div>
