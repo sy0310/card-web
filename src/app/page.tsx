@@ -24,6 +24,8 @@ export default function Home() {
   const [activeCategory, setActiveCategory] = useState('All');
   const [isWishlistOpen, setIsWishlistOpen] = useState(false);
   const [siteTitle, setSiteTitle] = useState('K-POP CARD');
+  const [isExpanded, setIsExpanded] = useState(false);
+  const visibleLimit = 10;
   
   const { items } = useWishlist();
 
@@ -79,6 +81,13 @@ export default function Home() {
     [cards],
   );
 
+  const visibleCategories = useMemo(() => {
+    if (isExpanded || categories.length <= visibleLimit) {
+      return categories;
+    }
+    return categories.slice(0, visibleLimit);
+  }, [categories, isExpanded]);
+
   return (
     <main className={styles.main}>
       <WishlistDrawer isOpen={isWishlistOpen} onClose={() => setIsWishlistOpen(false)} />
@@ -112,7 +121,7 @@ export default function Home() {
       </section>
 
       <div className={styles.filterContainer}>
-        {categories.map(cat => (
+        {visibleCategories.map(cat => (
           <button 
             key={cat}
             className={`${styles.filterBtn} ${activeCategory === cat ? styles.activeFilter : ''}`}
@@ -121,6 +130,14 @@ export default function Home() {
             {cat}
           </button>
         ))}
+        {categories.length > visibleLimit && (
+          <button 
+            className={`${styles.filterBtn} ${styles.moreBtn}`}
+            onClick={() => setIsExpanded(!isExpanded)}
+          >
+            {isExpanded ? 'Less ↑' : `More (${categories.length - visibleLimit}) ↓`}
+          </button>
+        )}
       </div>
 
       <div className={styles.grid}>

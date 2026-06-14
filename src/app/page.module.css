@@ -82,6 +82,19 @@
   font-weight: 600;
 }
 
+.moreBtn {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(255, 255, 255, 0.08);
+  font-weight: 600;
+}
+
+.moreBtn:hover {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
 .grid {
   width: 100%;
   max-width: 1400px;
