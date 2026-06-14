@@ -45,8 +45,110 @@ const supabase = createClient(supabaseUrl, supabaseKey, {
 
 const EXPORT_DIR = path.join(process.cwd(), 'ig_export');
 
+async function getExistingStorageFiles(): Promise<Set<string>> {
+  const existingFiles = new Set<string>();
+  let offset = 0;
+  const limit = 1000;
+  
+  while (true) {
+    console.log(`   Fetching storage files (offset: ${offset})...`);
+    const { data, error } = await supabase.storage
+      .from('cards')
+      .list('migrated', {
+        limit,
+        offset,
+        sortBy: { column: 'name', order: 'asc' }
+      });
+      
+    if (error) {
+      console.error(`❌ Error listing storage files:`, error.message);
+      break;
+    }
+    
+    if (!data || data.length === 0) {
+      break;
+    }
+    
+    for (const item of data) {
+      if (item.name) {
+        existingFiles.add(item.name);
+      }
+    }
+    
+    if (data.length < limit) {
+      break;
+    }
+    
+    offset += limit;
+  }
+  
+  console.log(`ℹ️ Found ${existingFiles.size} existing files in Supabase Storage.`);
+  return existingFiles;
+}
+
+async function asyncPool<T, R>(
+  concurrency: number,
+  iterable: T[],
+  iteratorFn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: Promise<R>[] = [];
+  const executing: Promise<any>[] = [];
+  
+  for (const item of iterable) {
+    const p = Promise.resolve().then(() => iteratorFn(item));
+    results.push(p);
+    
+    if (concurrency <= iterable.length) {
+      const e: Promise<any> = p.then(() => executing.splice(executing.indexOf(e), 1));
+      executing.push(e);
+      if (executing.length >= concurrency) {
+        await Promise.race(executing);
+      }
+    }
+  }
+  return Promise.all(results);
+}
+
+async function getExistingDbKeys(): Promise<Set<string>> {
+  const existingKeys = new Set<string>();
+  let offset = 0;
+  const limit = 1000;
+  
+  while (true) {
+    console.log(`   Fetching database cards (offset: ${offset})...`);
+    const { data, error } = await supabase
+      .from('cards')
+      .select('original_ig_url')
+      .range(offset, offset + limit - 1);
+      
+    if (error) {
+      console.error(`❌ Error fetching cards from database:`, error.message);
+      break;
+    }
+    
+    if (!data || data.length === 0) {
+      break;
+    }
+    
+    for (const item of data) {
+      if (item.original_ig_url) {
+        existingKeys.add(item.original_ig_url);
+      }
+    }
+    
+    if (data.length < limit) {
+      break;
+    }
+    
+    offset += limit;
+  }
+  
+  console.log(`ℹ️ Found ${existingKeys.size} existing Instagram cards in database.`);
+  return existingKeys;
+}
+
 async function migrate() {
-  console.log('🚀 Starting highly optimized bulk migration...');
+  console.log('🚀 Starting highly optimized bulk migration with complete image check...');
 
   if (!fs.existsSync(EXPORT_DIR)) {
     console.error(`❌ Folder 'ig_export' not found! Please create it and put your IG data inside.`);
@@ -56,26 +158,18 @@ async function migrate() {
   const files = fs.readdirSync(EXPORT_DIR);
   const textFiles = files.filter(f => f.endsWith('.txt'));
 
+  console.log(`🔍 Fetching existing storage files to see what is already uploaded...`);
+  const existingStorageFiles = await getExistingStorageFiles();
+
   console.log(`🔍 Fetching existing migrated cards from database...`);
-  const { data: existingCards, error: fetchError } = await supabase
-    .from('cards')
-    .select('original_ig_url')
-    .range(0, 4999);
-
-  if (fetchError) {
-    console.error('❌ Failed to fetch existing cards:', fetchError.message);
-    return;
-  }
-
-  const existingKeys = new Set((existingCards || []).map(c => c.original_ig_url).filter(Boolean));
-  console.log(`ℹ️ Found ${existingKeys.size} existing Instagram cards in database.`);
+  const existingDbKeys = await getExistingDbKeys();
 
   console.log(`🚀 Processing metadata for ${textFiles.length} posts...`);
 
   const cardsToInsert: any[] = [];
-  let skippedCount = 0;
-  let uploadCount = 0;
-  const recentThreshold = 14 * 24 * 60 * 60 * 1000; // 14 days
+  const uploadTasks: { baseName: string; fileName: string; imgPath: string }[] = [];
+  let alreadyExistInBoth = 0;
+  let onlyNeedUpload = 0;
 
   for (let i = 0; i < textFiles.length; i++) {
     const txtFile = textFiles[i];
@@ -91,67 +185,93 @@ async function migrate() {
     }
 
     const targetIgUrl = `https://www.instagram.com/p/${baseName}/`;
-    if (existingKeys.has(targetIgUrl)) {
-      skippedCount++;
+    const extension = path.extname(imgFile);
+    const fileName = `${baseName}${extension}`;
+    const imgPath = path.join(EXPORT_DIR, imgFile);
+
+    const hasInDb = existingDbKeys.has(targetIgUrl);
+    const hasInStorage = existingStorageFiles.has(fileName);
+
+    if (hasInDb && hasInStorage) {
+      alreadyExistInBoth++;
       continue;
     }
 
-    try {
-      const caption = fs.readFileSync(path.join(EXPORT_DIR, txtFile), 'utf-8');
-      const metadata = parseCaption(caption);
-      const imgPath = path.join(EXPORT_DIR, imgFile);
-      const extension = path.extname(imgFile);
-      const fileName = `${baseName}${extension}`;
+    // If missing in Storage, we need to upload it
+    if (!hasInStorage) {
+      uploadTasks.push({ baseName, fileName, imgPath });
+      if (hasInDb) {
+        onlyNeedUpload++;
+      }
+    }
 
-      const { data: { publicUrl } } = supabase.storage
-        .from('cards')
-        .getPublicUrl(`migrated/${fileName}`);
+    // If missing in DB, we need to insert it
+    if (!hasInDb) {
+      try {
+        const caption = fs.readFileSync(path.join(EXPORT_DIR, txtFile), 'utf-8');
+        const metadata = parseCaption(caption);
+        const { data: { publicUrl } } = supabase.storage
+          .from('cards')
+          .getPublicUrl(`migrated/${fileName}`);
 
-      // Check post date from filename (e.g. 2025-05-18_18-10-27_UTC)
-      const dateStr = baseName.substring(0, 10);
-      const postTime = new Date(dateStr).getTime();
-      const isRecent = (Date.now() - postTime) < recentThreshold;
+        cardsToInsert.push({
+          title: metadata.title,
+          description: caption,
+          price: metadata.price,
+          group_name: metadata.group,
+          album_era: metadata.album_era,
+          member_name: metadata.member,
+          image_url: publicUrl,
+          source: 'instagram',
+          original_ig_url: targetIgUrl
+        });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        console.error(`❌ Failed processing metadata for ${baseName}:`, message);
+      }
+    }
+  }
 
-      if (isRecent) {
-        console.log(`📤 Uploading recent image for: ${baseName}`);
-        const fileBuffer = fs.readFileSync(imgPath);
+  console.log(`\n📊 Analysis Results:`);
+  console.log(`⏭️ Already fully migrated (DB & Storage exist): ${alreadyExistInBoth}`);
+  console.log(`📤 Images needing upload to Storage: ${uploadTasks.length} (out of which ${onlyNeedUpload} already exist in DB but missed in Storage)`);
+  console.log(`➕ Cards needing database insertion: ${cardsToInsert.length}`);
+
+  // 1. Upload missing images
+  if (uploadTasks.length > 0) {
+    console.log(`\n📤 Starting concurrent uploads for ${uploadTasks.length} images...`);
+    let uploadedCount = 0;
+    let failedCount = 0;
+
+    await asyncPool(15, uploadTasks, async (task) => {
+      try {
+        const fileBuffer = fs.readFileSync(task.imgPath);
         const { error: uploadError } = await supabase.storage
           .from('cards')
-          .upload(`migrated/${fileName}`, fileBuffer, { 
+          .upload(`migrated/${task.fileName}`, fileBuffer, { 
             contentType: 'image/jpeg',
             upsert: true 
           });
         if (uploadError) {
-          console.error(`⚠️ Upload failed for ${fileName}:`, uploadError.message);
+          console.error(`❌ Upload failed for ${task.fileName}:`, uploadError.message);
+          failedCount++;
         } else {
-          uploadCount++;
+          uploadedCount++;
+          if (uploadedCount % 50 === 0 || uploadedCount === uploadTasks.length) {
+            console.log(`   Uploaded ${uploadedCount}/${uploadTasks.length} images...`);
+          }
         }
+      } catch (err: any) {
+        console.error(`❌ Exception uploading ${task.fileName}:`, err.message);
+        failedCount++;
       }
-
-      cardsToInsert.push({
-        title: metadata.title,
-        description: caption,
-        price: metadata.price,
-        group_name: metadata.group,
-        album_era: metadata.album_era,
-        member_name: metadata.member,
-        image_url: publicUrl,
-        source: 'instagram',
-        original_ig_url: targetIgUrl
-      });
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      console.error(`❌ Failed processing ${baseName}:`, message);
-    }
+    });
+    console.log(`✅ Upload process completed. Success: ${uploadedCount}, Failed: ${failedCount}`);
   }
 
-  console.log(`\n📊 Metadata processing done.`);
-  console.log(`⏭️ Skipped (already exist): ${skippedCount}`);
-  console.log(`📤 Uploaded recent images: ${uploadCount}`);
-  console.log(`➕ Ready to insert ${cardsToInsert.length} new cards.`);
-
+  // 2. Insert missing cards into database
   if (cardsToInsert.length > 0) {
-    console.log(`🚀 Executing bulk database insertion...`);
+    console.log(`\n🚀 Executing bulk database insertion...`);
     const chunkSize = 100;
     let insertedCount = 0;
 
@@ -171,7 +291,7 @@ async function migrate() {
     console.log(`✅ Successfully inserted ${insertedCount} cards in bulk.`);
   }
 
-  printSummary(cardsToInsert.length, 0, skippedCount);
+  printSummary(cardsToInsert.length, 0, alreadyExistInBoth);
 }
 
 function printSummary(success: number, fail: number, skipped: number) {
