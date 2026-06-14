@@ -164,7 +164,7 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
             <div className={styles.summaryItems}>
               {items.map(item => (
                 <div key={item.id} className={styles.summaryItem}>
-                  <img src={item.image_url} alt="" />
+                  <img src={item.image_url} crossOrigin="anonymous" alt="" />
                   <div className={styles.summaryItemInfo}>
                     <h4>{item.title}</h4>
                     <p>{item.group_name} {item.quantity > 1 ? ` (x${item.quantity})` : ''}</p>
