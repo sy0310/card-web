@@ -24,6 +24,10 @@ export default function CardItem({ card }: CardProps) {
   return (
     <div className={`${styles.card} glass fade-in`}>
       <div className={styles.imageContainer}>
+        <div 
+          className={styles.blurBackground} 
+          style={{ backgroundImage: `url(${card.image_url})` }}
+        />
         <img src={card.image_url} alt={card.title} className={styles.image} />
         {isSoldOut && (
           <div className={styles.soldOutOverlay}>

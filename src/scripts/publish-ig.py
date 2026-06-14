@@ -2,6 +2,7 @@ import os
 import sys
 import json
 from instagrapi import Client
+from publish_ig_env import load_publish_env
 
 def main():
     if len(sys.argv) < 3:
@@ -15,24 +16,14 @@ def main():
         print(f"❌ Error: Image path does not exist: {image_path}")
         sys.exit(1)
 
-    # 1. Parse env file
-    env = {}
-    env_path = '.env.local'
-    if os.path.exists(env_path):
-        with open(env_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith('#'):
-                    continue
-                if '=' in line:
-                    key, val = line.split('=', 1)
-                    env[key.strip()] = val.strip().strip("'").strip('"')
+    # 1. Read runtime env first, then fall back to local .env.local for scripts.
+    env = load_publish_env('.env.local')
 
     session_id = env.get('session_id')
     proxy = env.get('proxy')
 
     if not session_id:
-        print("❌ Error: session_id not found in .env.local!")
+        print("❌ Error: session_id not found in environment or .env.local!")
         sys.exit(1)
 
     # 2. Setup client

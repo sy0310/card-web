@@ -6,7 +6,7 @@ import {
   buildSettingsRows,
   getCardDraftErrors,
   normalizeAdminSettings,
-} from './adminDashboardUtils';
+} from './adminDashboardUtils.ts';
 
 test('buildCardUpdatePayload trims text fields and coerces numeric values', () => {
   const payload = buildCardUpdatePayload({
@@ -35,6 +35,7 @@ test('buildCardUpdatePayload trims text fields and coerces numeric values', () =
     inventory_count: 0,
     original_ig_url: '',
     source: 'instagram',
+    pob_name: '',
   });
 });
 

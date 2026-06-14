@@ -4,6 +4,16 @@ import { useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import styles from './BulkUpload.module.css';
 
+type UploadCardResponse = {
+  success?: boolean;
+  error?: string;
+  instagram?: {
+    success: boolean;
+    url?: string;
+    error?: string;
+  } | null;
+};
+
 export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
   const [activeTab, setActiveTab] = useState<'bulk' | 'single'>('bulk');
   const [uploading, setUploading] = useState(false);
@@ -101,39 +111,58 @@ export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
     });
   };
 
+  const getAdminAccessToken = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      throw new Error('Please sign in again before uploading.');
+    }
+    return session.access_token;
+  };
+
+  const uploadCardToAdminApi = async (
+    file: File,
+    fields: Record<string, string | boolean | number>,
+    accessToken: string,
+  ) => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    Object.entries(fields).forEach(([key, value]) => {
+      formData.append(key, String(value));
+    });
+
+    const res = await fetch('/api/admin/cards/upload', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: formData,
+    });
+
+    const result = await res.json().catch(() => ({})) as UploadCardResponse;
+    if (!res.ok || result.error) {
+      throw new Error(result.error || 'Upload failed.');
+    }
+
+    return result;
+  };
+
   const handleBulkUpload = async () => {
     if (files.length === 0) return;
     setUploading(true);
 
     try {
+      const accessToken = await getAdminAccessToken();
+
       for (const file of files) {
-        const fileExt = file.name.split('.').pop();
-        const fileName = `${Math.random()}.${fileExt}`;
-        const filePath = `card-images/${fileName}`;
-
-        // 1. Upload to Storage
-        const { error: uploadError } = await supabase.storage
-          .from('cards')
-          .upload(filePath, file);
-
-        if (uploadError) throw uploadError;
-
-        // 2. Get Public URL
-        const { data: { publicUrl } } = supabase.storage
-          .from('cards')
-          .getPublicUrl(filePath);
-
-        // 3. Insert into Database
-        const { error: dbError } = await supabase.from('cards').insert({
+        await uploadCardToAdminApi(file, {
           title: file.name.replace(/\.[^/.]+$/, ""), // Use filename as title
-          image_url: publicUrl,
-          price: parseFloat(commonMetadata.price) || 0,
-          group_name: commonMetadata.group_name.trim(),
-          album_era: commonMetadata.album_era.trim(),
+          price: commonMetadata.price,
+          group_name: commonMetadata.group_name,
+          album_era: commonMetadata.album_era,
           inventory_count: 1,
-        });
-
-        if (dbError) throw dbError;
+          syncToIg: false,
+        }, accessToken);
       }
 
       setFiles([]);
@@ -159,64 +188,22 @@ export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
 
     setUploading(true);
     try {
-      // 1. Upload to Storage
-      const fileExt = singleFile.name.split('.').pop();
-      const fileName = `${Math.random()}.${fileExt}`;
-      const filePath = `card-images/${fileName}`;
+      const accessToken = await getAdminAccessToken();
+      const result = await uploadCardToAdminApi(singleFile, {
+        title: singleData.title,
+        price: singleData.price,
+        group_name: singleData.group_name,
+        album_era: singleData.album_era,
+        pob_name: singleData.pob_name,
+        inventory_count: singleData.inventory_count,
+        source: 'manual',
+        syncToIg: singleData.syncToIg,
+        igCaption: singleData.igCaption,
+      }, accessToken);
 
-      const { error: uploadError } = await supabase.storage
-        .from('cards')
-        .upload(filePath, singleFile);
-
-      if (uploadError) throw uploadError;
-
-      // 2. Get Public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('cards')
-        .getPublicUrl(filePath);
-
-      // 3. Insert into Database
-      const priceVal = parseFloat(singleData.price) || 0;
-      const stockVal = parseInt(singleData.inventory_count) || 1;
-
-      const { data: insertedCard, error: dbError } = await supabase
-        .from('cards')
-        .insert({
-          title: singleData.title.trim(),
-          image_url: publicUrl,
-          price: priceVal,
-          group_name: singleData.group_name.trim(),
-          album_era: singleData.album_era.trim(),
-          pob_name: singleData.pob_name.trim(),
-          inventory_count: stockVal,
-          source: 'manual'
-        })
-        .select('*')
-        .single();
-
-      if (dbError) throw dbError;
-
-      // 4. Sync to Instagram if checked
-      if (singleData.syncToIg && insertedCard) {
-        const { data: { session } } = await supabase.auth.getSession();
-        const token = session?.access_token;
-
-        const res = await fetch('/api/admin/publish-instagram', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token || ''}`,
-          },
-          body: JSON.stringify({
-            imageUrl: publicUrl,
-            caption: singleData.igCaption,
-            cardId: insertedCard.id,
-          }),
-        });
-
-        const syncResult = await res.json();
-        if (!res.ok || syncResult.error) {
-          alert(`Card uploaded successfully to website, but Instagram Sync failed: ${syncResult.error || 'Unknown error'}`);
+      if (singleData.syncToIg) {
+        if (result.instagram?.success === false) {
+          alert(`Card uploaded successfully to website, but Instagram Sync failed: ${result.instagram.error || 'Unknown error'}`);
         } else {
           alert('Upload and Instagram Sync successful!');
         }

@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS cards (
     group_name TEXT,
     member_name TEXT,
     album_era TEXT,
+    pob_name TEXT,
     rarity TEXT,
     inventory_count INTEGER DEFAULT 1,
     original_ig_url TEXT, -- Link to the original IG post

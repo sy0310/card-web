@@ -57,11 +57,16 @@ export default function AdminDashboard() {
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string>('');
   const [savingCard, setSavingCard] = useState(false);
   const [deletingCardId, setDeletingCardId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [selectedWishlistIds, setSelectedWishlistIds] = useState<string[]>([]);
+  const [updatingWishlists, setUpdatingWishlists] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
   const router = useRouter();
 
   const fetchCards = useCallback(async () => {
     setLoadingCards(true);
+    setSelectedIds([]);
     let allCards: AdminCard[] = [];
     let offset = 0;
     const limit = 1000;
@@ -98,6 +103,7 @@ export default function AdminDashboard() {
   }, []);
 
   const fetchWishlists = useCallback(async () => {
+    setSelectedWishlistIds([]);
     const { data, error } = await supabase
       .from('wishlists')
       .select('*, wishlist_items(*, cards(*))')
@@ -290,9 +296,124 @@ export default function AdminDashboard() {
     setDeletingCardId(null);
   };
 
+  const handleDeleteSelected = async () => {
+    if (selectedIds.length === 0) return;
+    const confirmed = window.confirm(`确定要从库存中删除选中的 ${selectedIds.length} 张卡片吗？此操作无法撤销。`);
+    if (!confirmed) return;
+
+    setBulkDeleting(true);
+    setStatusMessage('');
+
+    try {
+      const { error } = await supabase
+        .from('cards')
+        .delete()
+        .in('id', selectedIds);
+
+      if (error) {
+        setStatusMessage(`批量删除卡片失败: ${error.message}`);
+      } else {
+        const cardsToDelete = cards.filter(c => selectedIds.includes(c.id));
+        const filePaths = cardsToDelete
+          .map(card => {
+            if (card.image_url && card.image_url.includes('/storage/v1/object/public/cards/')) {
+              return card.image_url.split('/storage/v1/object/public/cards/')[1];
+            }
+            return null;
+          })
+          .filter(Boolean) as string[];
+
+        if (filePaths.length > 0) {
+          try {
+            await supabase.storage.from('cards').remove(filePaths);
+          } catch (storageErr) {
+            console.error('Error removing storage files:', storageErr);
+          }
+        }
+
+        setCards(current => current.filter(item => !selectedIds.includes(item.id)));
+        setStatusMessage(`成功删除选中的 ${selectedIds.length} 张卡片。`);
+        
+        if (editingCard && selectedIds.includes(editingCard.id)) {
+          closeCardEditor();
+        }
+        
+        setSelectedIds([]);
+      }
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      setStatusMessage(`批量删除发生错误: ${errMsg}`);
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  const handleBulkDeleteWishlists = async () => {
+    if (selectedWishlistIds.length === 0) return;
+    const confirmed = window.confirm(`确定要删除选中的 ${selectedWishlistIds.length} 个清单吗？此操作无法撤销。`);
+    if (!confirmed) return;
+
+    setUpdatingWishlists(true);
+    setStatusMessage('');
+
+    try {
+      const { error } = await supabase
+        .from('wishlists')
+        .delete()
+        .in('id', selectedWishlistIds);
+
+      if (error) {
+        setStatusMessage(`批量删除清单失败: ${error.message}`);
+      } else {
+        setWishlists(current => current.filter(w => !selectedWishlistIds.includes(w.id)));
+        setStatusMessage(`成功删除选中的 ${selectedWishlistIds.length} 个清单。`);
+        setSelectedWishlistIds([]);
+      }
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      setStatusMessage(`批量删除清单发生错误: ${errMsg}`);
+    } finally {
+      setUpdatingWishlists(false);
+    }
+  };
+
+  const handleBulkUpdateWishlistStatus = async (newStatus: string) => {
+    if (selectedWishlistIds.length === 0) return;
+    setUpdatingWishlists(true);
+    setStatusMessage('');
+
+    try {
+      const { error } = await supabase
+        .from('wishlists')
+        .update({ status: newStatus })
+        .in('id', selectedWishlistIds);
+
+      if (error) {
+        setStatusMessage(`批量修改清单状态失败: ${error.message}`);
+      } else {
+        setWishlists(current =>
+          current.map(w => selectedWishlistIds.includes(w.id) ? { ...w, status: newStatus } : w)
+        );
+        setStatusMessage(`成功更新选中清单的状态为 ${newStatus}。`);
+        setSelectedWishlistIds([]);
+      }
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      setStatusMessage(`批量更新状态发生错误: ${errMsg}`);
+    } finally {
+      setUpdatingWishlists(false);
+    }
+  };
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     router.push('/admin/login');
+  };
+
+  const handleTabChange = (tab: AdminTab) => {
+    setActiveTab(tab);
+    setSelectedIds([]);
+    setSelectedWishlistIds([]);
   };
 
   if (!session) return <div className={styles.loading}>Checking session...</div>;
@@ -479,19 +600,19 @@ export default function AdminDashboard() {
         <nav className={styles.nav}>
           <button
             className={`${styles.navItem} ${activeTab === 'inventory' ? styles.active : ''}`}
-            onClick={() => setActiveTab('inventory')}
+            onClick={() => handleTabChange('inventory')}
           >
             Inventory
           </button>
           <button
             className={`${styles.navItem} ${activeTab === 'wishlists' ? styles.active : ''}`}
-            onClick={() => setActiveTab('wishlists')}
+            onClick={() => handleTabChange('wishlists')}
           >
             Wishlists
           </button>
           <button
             className={`${styles.navItem} ${activeTab === 'settings' ? styles.active : ''}`}
-            onClick={() => setActiveTab('settings')}
+            onClick={() => handleTabChange('settings')}
           >
             Settings
           </button>
@@ -509,7 +630,18 @@ export default function AdminDashboard() {
                 <p className={styles.eyebrow}>Inventory control</p>
                 <h1>Card Inventory</h1>
               </div>
-              <button className={styles.addBtn} onClick={() => setShowUpload(true)}>Add new cards</button>
+              <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                {selectedIds.length > 0 && (
+                  <button
+                    className={styles.dangerBtn}
+                    onClick={() => void handleDeleteSelected()}
+                    disabled={bulkDeleting}
+                  >
+                    {bulkDeleting ? 'Deleting...' : `批量删除 (${selectedIds.length})`}
+                  </button>
+                )}
+                <button className={styles.addBtn} onClick={() => setShowUpload(true)}>Add new cards</button>
+              </div>
             </header>
 
             <section className={styles.stats}>
@@ -538,6 +670,19 @@ export default function AdminDashboard() {
                 <table className={styles.table}>
                   <thead>
                     <tr>
+                      <th style={{ width: '45px', textAlign: 'center' }}>
+                        <input
+                          type="checkbox"
+                          checked={cards.length > 0 && selectedIds.length === cards.length}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedIds(cards.map(c => c.id));
+                            } else {
+                              setSelectedIds([]);
+                            }
+                          }}
+                        />
+                      </th>
                       <th>Preview</th>
                       <th>Title</th>
                       <th>Group</th>
@@ -549,6 +694,19 @@ export default function AdminDashboard() {
                   <tbody>
                     {cards.map(card => (
                       <tr key={card.id}>
+                        <td style={{ textAlign: 'center' }}>
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.includes(card.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedIds(prev => [...prev, card.id]);
+                              } else {
+                                setSelectedIds(prev => prev.filter(id => id !== card.id));
+                              }
+                            }}
+                          />
+                        </td>
                         <td>
                           <img src={card.image_url} alt={card.title} className={styles.miniImg} />
                         </td>
@@ -594,7 +752,43 @@ export default function AdminDashboard() {
                 <p className={styles.eyebrow}>Customer requests</p>
                 <h1>User Wishlists</h1>
               </div>
-              <button className={styles.secondaryBtn} onClick={() => void fetchWishlists()}>Refresh</button>
+              <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                {selectedWishlistIds.length > 0 && (
+                  <>
+                    <select
+                      value=""
+                      onChange={(e) => {
+                        const status = e.target.value;
+                        if (status) void handleBulkUpdateWishlistStatus(status);
+                      }}
+                      disabled={updatingWishlists}
+                      style={{
+                        padding: '0.5rem',
+                        borderRadius: '8px',
+                        border: '1px solid rgba(125, 83, 222, 0.18)',
+                        background: 'rgba(255, 255, 255, 0.8)',
+                        fontSize: '0.85rem',
+                        height: '40px',
+                        fontWeight: '600',
+                        color: 'var(--foreground)',
+                        outline: 'none'
+                      }}
+                    >
+                      <option value="">更改状态为...</option>
+                      <option value="pending">Pending</option>
+                      <option value="completed">Completed</option>
+                    </select>
+                    <button
+                      className={styles.dangerBtn}
+                      onClick={() => void handleBulkDeleteWishlists()}
+                      disabled={updatingWishlists}
+                    >
+                      {updatingWishlists ? 'Deleting...' : `批量删除 (${selectedWishlistIds.length})`}
+                    </button>
+                  </>
+                )}
+                <button className={styles.secondaryBtn} onClick={() => void fetchWishlists()}>Refresh</button>
+              </div>
             </header>
 
             <div className={styles.inventoryList}>
@@ -602,6 +796,19 @@ export default function AdminDashboard() {
                 <table className={styles.table}>
                   <thead>
                     <tr>
+                      <th style={{ width: '45px', textAlign: 'center' }}>
+                        <input
+                          type="checkbox"
+                          checked={wishlists.length > 0 && selectedWishlistIds.length === wishlists.length}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedWishlistIds(wishlists.map(w => w.id));
+                            } else {
+                              setSelectedWishlistIds([]);
+                            }
+                          }}
+                        />
+                      </th>
                       <th>Date</th>
                       <th>IG Handle</th>
                       <th>Items</th>
@@ -612,6 +819,19 @@ export default function AdminDashboard() {
                   <tbody>
                     {wishlists.map(wishlist => (
                       <tr key={wishlist.id}>
+                        <td style={{ textAlign: 'center' }}>
+                          <input
+                            type="checkbox"
+                            checked={selectedWishlistIds.includes(wishlist.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedWishlistIds(prev => [...prev, wishlist.id]);
+                              } else {
+                                setSelectedWishlistIds(prev => prev.filter(id => id !== wishlist.id));
+                              }
+                            }}
+                          />
+                        </td>
                         <td className={styles.smallText}>{new Date(wishlist.created_at).toLocaleString()}</td>
                         <td>
                           <a
