@@ -45,6 +45,12 @@
   background: rgba(192, 160, 255, 0.05);
 }
 
+.dropzone.dragActive {
+  border-color: var(--primary);
+  background: rgba(192, 160, 255, 0.15);
+  box-shadow: 0 0 15px rgba(192, 160, 255, 0.3);
+}
+
 .fileInput {
   display: none;
 }

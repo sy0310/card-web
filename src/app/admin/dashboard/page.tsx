@@ -65,6 +65,7 @@ export default function AdminDashboard() {
     const { data, error } = await supabase
       .from('cards')
       .select('*')
+      .range(0, 4999)
       .order('created_at', { ascending: false });
 
     if (error) {

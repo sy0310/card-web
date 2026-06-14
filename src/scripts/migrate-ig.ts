@@ -46,7 +46,7 @@ const supabase = createClient(supabaseUrl, supabaseKey, {
 const EXPORT_DIR = path.join(process.cwd(), 'ig_export');
 
 async function migrate() {
-  console.log('🚀 Starting migration...');
+  console.log('🚀 Starting highly optimized bulk migration...');
 
   if (!fs.existsSync(EXPORT_DIR)) {
     console.error(`❌ Folder 'ig_export' not found! Please create it and put your IG data inside.`);
@@ -59,66 +59,76 @@ async function migrate() {
   console.log(`🔍 Fetching existing migrated cards from database...`);
   const { data: existingCards, error: fetchError } = await supabase
     .from('cards')
-    .select('title, description');
+    .select('original_ig_url')
+    .range(0, 4999);
 
   if (fetchError) {
     console.error('❌ Failed to fetch existing cards:', fetchError.message);
     return;
   }
 
-  const existingKeys = new Set((existingCards || []).map(c => `${c.title}::${c.description}`));
+  const existingKeys = new Set((existingCards || []).map(c => c.original_ig_url).filter(Boolean));
   console.log(`ℹ️ Found ${existingKeys.size} existing Instagram cards in database.`);
 
-  console.log(`🚀 Starting migration of ${textFiles.length} posts...`);
+  console.log(`🚀 Processing metadata for ${textFiles.length} posts...`);
 
-  let successCount = 0;
-  let failCount = 0;
+  const cardsToInsert: any[] = [];
   let skippedCount = 0;
+  let uploadCount = 0;
+  const recentThreshold = 14 * 24 * 60 * 60 * 1000; // 14 days
 
   for (let i = 0; i < textFiles.length; i++) {
     const txtFile = textFiles[i];
     const baseName = txtFile.replace('.txt', '');
     
-    // Find the primary image (either basename.jpg or basename_1.jpg)
+    // Find the primary image
     const imgFile = files.find(f => 
       (f === `${baseName}.jpg` || f === `${baseName}_1.jpg` || f === `${baseName}.png`)
     );
     
     if (!imgFile) {
-      console.warn(`[${i+1}/${textFiles.length}] ⚠️ No image found for ${txtFile}, skipping.`);
+      continue;
+    }
+
+    const targetIgUrl = `https://www.instagram.com/p/${baseName}/`;
+    if (existingKeys.has(targetIgUrl)) {
+      skippedCount++;
       continue;
     }
 
     try {
       const caption = fs.readFileSync(path.join(EXPORT_DIR, txtFile), 'utf-8');
       const metadata = parseCaption(caption);
-
-      // Check if already migrated
-      const key = `${metadata.title}::${caption}`;
-      if (existingKeys.has(key)) {
-        skippedCount++;
-        continue;
-      }
-
       const imgPath = path.join(EXPORT_DIR, imgFile);
-      const fileBuffer = fs.readFileSync(imgPath);
       const extension = path.extname(imgFile);
-      const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}${extension}`;
-      
-      const { error: uploadError } = await supabase.storage
-        .from('cards')
-        .upload(`migrated/${fileName}`, fileBuffer, { 
-          contentType: 'image/jpeg',
-          upsert: true 
-        });
-
-      if (uploadError) throw uploadError;
+      const fileName = `${baseName}${extension}`;
 
       const { data: { publicUrl } } = supabase.storage
         .from('cards')
         .getPublicUrl(`migrated/${fileName}`);
 
-      const { error: dbError } = await supabase.from('cards').insert({
+      // Check post date from filename (e.g. 2025-05-18_18-10-27_UTC)
+      const dateStr = baseName.substring(0, 10);
+      const postTime = new Date(dateStr).getTime();
+      const isRecent = (Date.now() - postTime) < recentThreshold;
+
+      if (isRecent) {
+        console.log(`📤 Uploading recent image for: ${baseName}`);
+        const fileBuffer = fs.readFileSync(imgPath);
+        const { error: uploadError } = await supabase.storage
+          .from('cards')
+          .upload(`migrated/${fileName}`, fileBuffer, { 
+            contentType: 'image/jpeg',
+            upsert: true 
+          });
+        if (uploadError) {
+          console.error(`⚠️ Upload failed for ${fileName}:`, uploadError.message);
+        } else {
+          uploadCount++;
+        }
+      }
+
+      cardsToInsert.push({
         title: metadata.title,
         description: caption,
         price: metadata.price,
@@ -127,26 +137,41 @@ async function migrate() {
         member_name: metadata.member,
         image_url: publicUrl,
         source: 'instagram',
-        original_ig_url: `https://www.instagram.com/p/${baseName.split('_')[0]}/` // Best guess
+        original_ig_url: targetIgUrl
       });
-
-      if (dbError) throw dbError;
-
-      successCount++;
-      if (successCount % 10 === 0) {
-        console.log(`✅ Progress: ${successCount}/${textFiles.length} (${Math.round(successCount/textFiles.length*100)}%)`);
-      }
     } catch (err: unknown) {
-      failCount++;
       const message = err instanceof Error ? err.message : 'Unknown error';
-      console.error(`❌ [${i+1}/${textFiles.length}] Failed ${baseName}:`, message);
+      console.error(`❌ Failed processing ${baseName}:`, message);
     }
-
-    // Small delay to prevent hitting Supabase rate limits
-    await new Promise(resolve => setTimeout(resolve, 100));
   }
 
-  printSummary(successCount, failCount, skippedCount);
+  console.log(`\n📊 Metadata processing done.`);
+  console.log(`⏭️ Skipped (already exist): ${skippedCount}`);
+  console.log(`📤 Uploaded recent images: ${uploadCount}`);
+  console.log(`➕ Ready to insert ${cardsToInsert.length} new cards.`);
+
+  if (cardsToInsert.length > 0) {
+    console.log(`🚀 Executing bulk database insertion...`);
+    const chunkSize = 100;
+    let insertedCount = 0;
+
+    for (let i = 0; i < cardsToInsert.length; i += chunkSize) {
+      const chunk = cardsToInsert.slice(i, i + chunkSize);
+      const { error: insertErr } = await supabase
+        .from('cards')
+        .insert(chunk);
+
+      if (insertErr) {
+        console.error(`❌ Bulk insertion error for chunk starting at index ${i}:`, insertErr.message);
+      } else {
+        insertedCount += chunk.length;
+        console.log(`   Inserted chunk ${i / chunkSize + 1} (${chunk.length} cards)`);
+      }
+    }
+    console.log(`✅ Successfully inserted ${insertedCount} cards in bulk.`);
+  }
+
+  printSummary(cardsToInsert.length, 0, skippedCount);
 }
 
 function printSummary(success: number, fail: number, skipped: number) {
@@ -155,6 +180,72 @@ function printSummary(success: number, fail: number, skipped: number) {
   console.log(`⏭️ Skipped (already exist): ${skipped}`);
   console.log(`❌ Failed: ${fail}`);
 }
+
+const GROUP_MAP: Record<string, string> = {
+  'svt': 'Seventeen',
+  'seventeen': 'Seventeen',
+  '82major': '82major',
+  '82m': '82major',
+  'p1h': 'P1Harmony',
+  'p1harmony': 'P1Harmony',
+  'zb1': 'ZEROBASEONE',
+  'zerobaseone': 'ZEROBASEONE',
+  'lsf': 'LE SSERAFIM',
+  'lesserafim': 'LE SSERAFIM',
+  'adt': '&Team',
+  '&team': '&Team',
+  'amp': 'Ampers&one',
+  'ampers&one': 'Ampers&one',
+  'nct': 'NCT',
+  'nctw': 'NCT Wish',
+  'crv': 'CRAVITY',
+  'cravity': 'CRAVITY',
+  'bnd': 'BOYNEXTDOOR',
+  'boynextdoor': 'BOYNEXTDOOR',
+  'kfl': 'Kickflip',
+  'kickflip': 'Kickflip',
+  'cye': 'CYE',
+  'ahf': 'ahof',
+  'ahof': 'ahof',
+  'xahf': 'ahof',
+  'xlov': 'xlov',
+  'nua': 'NouerA',
+  'nouera': 'NouerA',
+  'atz': 'Ateez',
+  'ateez': 'Ateez',
+  'cyn': 'Yena',
+  'yena': 'Yena',
+  'adp': 'Allday project',
+  'allday': 'Allday project',
+  'kik': 'kiiikiii',
+  'kiiikiii': 'kiiikiii',
+  'ehp': 'Enhypen',
+  'enhypen': 'Enhypen',
+  'xik': 'Xikers',
+  'xikers': 'Xikers',
+  'tws': 'TWS',
+  'illit': 'Illit',
+  'aespa': 'aespa',
+  'h2h': 'aespa',
+  'txt': 'TXT',
+  'itzy': 'Itzy',
+  'gmmtv': 'GMMTV',
+  'evnne': 'Evnne',
+  'rescene': 'RESCENE',
+  'qwer': 'QWER',
+  'kep1er': 'Kep1er',
+  'kiss of life': 'Kiss of Life',
+  'gidle': '(G)I-DLE',
+  'i-dle': '(G)I-DLE',
+  'exo': 'EXO',
+  'kai': 'EXO',
+  'chanyeol': 'EXO',
+  'baekhyun': 'EXO',
+  'riiz': 'Riize',
+  'riize': 'Riize',
+  'stray': 'Stray Kids',
+  'skz': 'Stray Kids'
+};
 
 function parseCaption(caption: string) {
   const lines = caption.split('\n');
@@ -171,29 +262,56 @@ function parseCaption(caption: string) {
     price = parseFloat(priceMatch[1]);
   }
 
-  // 2. Extract Group and Album from the first line
+  // 2. Parse Group, Album & Title
   if (firstLine.startsWith('#')) {
     const tokens = firstLine.split(/\s+/).filter(Boolean);
-    if (tokens.length >= 2) {
-      group = tokens[1];
-      const lowerGroup = group.toLowerCase();
-      // Beautify known groups
-      if (lowerGroup === 'p1harmony') {
-        group = 'P1Harmony';
-      } else if (lowerGroup === 'illit') {
-        group = 'Illit';
-      } else if (lowerGroup === 'ampers&one') {
-        group = 'Ampers&one';
-      } else if (lowerGroup === '&team') {
-        group = '&Team';
-      } else if (lowerGroup === 'xikers') {
-        group = 'Xikers';
-      } else if (lowerGroup === 'riize') {
-        group = 'Riize';
+    const firstToken = tokens[0]; // e.g. "#meguronua" or "#riize"
+    
+    // Clean tag to extract abbreviation: remove leading '#', 'meguro', 'megurop', 'megurox'
+    let rawTag = firstToken.substring(1).toLowerCase(); // remove '#'
+    if (rawTag.startsWith('megurop')) {
+      rawTag = rawTag.substring(7);
+    } else if (rawTag.startsWith('megurox')) {
+      rawTag = rawTag.substring(7);
+    } else if (rawTag.startsWith('meguro')) {
+      rawTag = rawTag.substring(6);
+    }
+    
+    // Attempt to match Group from clean abbreviation
+    if (GROUP_MAP[rawTag]) {
+      group = GROUP_MAP[rawTag];
+    }
+    
+    // If abbreviation not in map, check the other tokens for known group names
+    if (!group) {
+      for (const token of tokens) {
+        const cleanedToken = token.replace(/[^a-zA-Z0-9&]/g, '').toLowerCase();
+        if (GROUP_MAP[cleanedToken]) {
+          group = GROUP_MAP[cleanedToken];
+          break;
+        }
       }
     }
-    if (tokens.length >= 3) {
-      album_era = tokens[2];
+    
+    // If still not matched, fallback to the second token (legacy behavior)
+    if (!group && tokens.length >= 2) {
+      group = tokens[1];
+    }
+    
+    // Filter out group tokens from the title/description parts
+    const groupLower = group.toLowerCase();
+    const groupWords = groupLower.split(/\s+/);
+    
+    const remainingTokens = tokens.slice(1).filter(t => {
+      const cleanedT = t.toLowerCase().replace(/[^a-zA-Z0-9&]/g, '');
+      if (t === firstToken) return false;
+      if (cleanedT === rawTag) return false;
+      if (groupWords.includes(cleanedT)) return false;
+      return true;
+    });
+
+    if (remainingTokens.length >= 1) {
+      album_era = remainingTokens[0];
     }
   }
 

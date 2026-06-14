@@ -33,6 +33,7 @@ export default function Home() {
     void supabase
       .from('cards')
       .select('*')
+      .range(0, 4999)
       .order('created_at', { ascending: false })
       .then(({ data }) => {
         if (isMounted && data) setCards(data as StorefrontCard[]);

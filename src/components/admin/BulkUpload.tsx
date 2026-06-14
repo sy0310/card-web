@@ -29,6 +29,40 @@ export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
   });
   const [singleFile, setSingleFile] = useState<File | null>(null);
   const [singleFilePreview, setSingleFilePreview] = useState<string>('');
+  const [isDragActive, setIsDragActive] = useState(false);
+
+  const handleDrag = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setIsDragActive(true);
+    } else if (e.type === "dragleave") {
+      setIsDragActive(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragActive(false);
+
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const droppedFiles = Array.from(e.dataTransfer.files).filter(file => file.type.startsWith('image/'));
+      if (droppedFiles.length === 0) return;
+
+      if (activeTab === 'bulk') {
+        setFiles(prev => [...prev, ...droppedFiles]);
+      } else {
+        const file = droppedFiles[0];
+        setSingleFile(file);
+        setSingleFilePreview(URL.createObjectURL(file));
+        if (!singleData.title.trim()) {
+          const titleWithoutExt = file.name.replace(/\.[^/.]+$/, "");
+          setSingleData(prev => ({ ...prev, title: titleWithoutExt }));
+        }
+      }
+    }
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -266,7 +300,13 @@ export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
             </div>
           </div>
 
-          <div className={styles.dropzone}>
+          <div 
+            className={`${styles.dropzone} ${isDragActive ? styles.dragActive : ''}`}
+            onDragEnter={handleDrag}
+            onDragOver={handleDrag}
+            onDragLeave={handleDrag}
+            onDrop={handleDrop}
+          >
             <input
               type="file"
               multiple
@@ -362,7 +402,13 @@ export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
             </div>
           </div>
 
-          <div className={styles.dropzone}>
+          <div 
+            className={`${styles.dropzone} ${isDragActive ? styles.dragActive : ''}`}
+            onDragEnter={handleDrag}
+            onDragOver={handleDrag}
+            onDragLeave={handleDrag}
+            onDrop={handleDrop}
+          >
             <input
               type="file"
               accept="image/*"
