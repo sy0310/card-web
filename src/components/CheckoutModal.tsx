@@ -152,7 +152,7 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
             <div className={styles.summaryInstruction}>
               <h3>Instructions</h3>
               <p>
-                Tysm for your interest! Pls DM <strong>@meguro_abebe</strong> on Instagram for payment info with this receipt. Pls understand price and availability may not be up to the date so changes may be made but you are free to decide whether to proceed with the change or not. Pls check carrd GO rules before DM! 💞
+                {settings.wishlist_footer_note}
               </p>
             </div>
             
@@ -179,7 +179,7 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
             <div className={styles.summaryFooter}>
               <div className={styles.summaryTotal}>
                 <span>TOTAL ESTIMATED</span>
-                <h2>${totalPrice}</h2>
+                <h2>${Number(totalPrice).toFixed(2)}</h2>
               </div>
               <p style={{ color: '#9ca3af', fontSize: '12px', marginTop: '10px' }}>{settings.wishlist_footer_note}</p>
               <p style={{ color: '#c0a0ff', fontSize: '13px', fontWeight: 'bold', margin: '5px 0 0' }}>{settings.official_ig_handle}</p>

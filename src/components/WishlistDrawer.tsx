@@ -63,7 +63,7 @@ export default function WishlistDrawer({ isOpen, onClose }: { isOpen: boolean, o
           <footer className={styles.footer}>
             <div className={styles.total}>
               <span>Total Estimation</span>
-              <span className={styles.totalAmount}>${totalPrice}</span>
+              <span className={styles.totalAmount}>${Number(totalPrice).toFixed(2)}</span>
             </div>
             <button 
               className={styles.checkoutBtn}
