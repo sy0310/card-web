@@ -12,6 +12,7 @@ type CardProps = {
     group_name: string;
     inventory_count: number;
     rarity?: string;
+    pob_name?: string;
   };
 };
 
@@ -35,6 +36,11 @@ export default function CardItem({ card }: CardProps) {
       <div className={styles.info}>
         <p className={styles.group}>{card.group_name}</p>
         <h3 className={styles.title}>{card.title}</h3>
+        {card.pob_name && (
+          <div className={styles.pobBadge}>
+            POB: {card.pob_name}
+          </div>
+        )}
         
         <div className={styles.footer}>
           <span className={styles.price}>${card.price}</span>

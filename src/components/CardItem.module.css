@@ -99,9 +99,9 @@
 }
 
 .addBtn {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.45);
   border: 1px solid var(--glass-border);
-  color: white;
+  color: var(--foreground);
   padding: 0.6rem 1rem;
   border-radius: 10px;
   font-size: 0.85rem;
@@ -111,11 +111,25 @@
 
 .addBtn:hover:not(:disabled) {
   background: var(--primary);
-  color: black;
+  color: white;
   border-color: var(--primary);
 }
 
 .addBtn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+.pobBadge {
+  font-size: 0.7rem;
+  color: var(--primary);
+  background: rgba(192, 160, 255, 0.1);
+  border: 1px solid rgba(192, 160, 255, 0.3);
+  padding: 0.2rem 0.5rem;
+  border-radius: 6px;
+  align-self: flex-start;
+  font-weight: 500;
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+  letter-spacing: 0.5px;
 }

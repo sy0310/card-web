@@ -1,15 +1,24 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import styles from "./page.module.css";
 import CardItem from '@/components/CardItem';
 import WishlistDrawer from '@/components/WishlistDrawer';
 import { useWishlist } from '@/context/WishlistContext';
 
+type StorefrontCard = {
+  id: string;
+  title: string;
+  price: number;
+  image_url: string;
+  group_name: string;
+  inventory_count: number;
+  rarity?: string;
+};
+
 export default function Home() {
-  const [cards, setCards] = useState<any[]>([]);
-  const [filteredCards, setFilteredCards] = useState<any[]>([]);
+  const [cards, setCards] = useState<StorefrontCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
@@ -19,36 +28,34 @@ export default function Home() {
   const { items } = useWishlist();
 
   useEffect(() => {
-    fetchCards();
-    fetchSettings();
-  }, []);
+    let isMounted = true;
 
-  useEffect(() => {
-    filterCards();
-  }, [search, activeCategory, cards]);
-
-  const fetchCards = async () => {
-    setLoading(true);
-    const { data, error } = await supabase
+    void supabase
       .from('cards')
       .select('*')
-      .order('created_at', { ascending: false });
-    
-    if (data) setCards(data);
-    setLoading(false);
-  };
+      .order('created_at', { ascending: false })
+      .then(({ data }) => {
+        if (isMounted && data) setCards(data as StorefrontCard[]);
+      })
+      .then(() => {
+        if (isMounted) setLoading(false);
+      });
 
-  const fetchSettings = async () => {
-    const { data } = await supabase
+    void supabase
       .from('site_settings')
       .select('value')
       .eq('key', 'site_title')
-      .single();
-    
-    if (data) setSiteTitle(data.value);
-  };
+      .single()
+      .then(({ data }) => {
+        if (isMounted && data) setSiteTitle(data.value);
+      });
 
-  const filterCards = () => {
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const filteredCards = useMemo(() => {
     let result = [...cards];
     
     if (activeCategory !== 'All') {
@@ -63,10 +70,13 @@ export default function Home() {
       );
     }
     
-    setFilteredCards(result);
-  };
+    return result;
+  }, [activeCategory, cards, search]);
 
-  const categories = ['All', ...Array.from(new Set(cards.map(c => c.group_name))).filter(Boolean)];
+  const categories = useMemo(
+    () => ['All', ...Array.from(new Set(cards.map(c => c.group_name))).filter(Boolean)],
+    [cards],
+  );
 
   return (
     <main className={styles.main}>

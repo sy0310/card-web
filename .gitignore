@@ -39,3 +39,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local export & sessions
+/ig_export/
+/cravity_official/
+/meguro_abebe/

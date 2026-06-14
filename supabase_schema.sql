@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS cards (
     album_era TEXT,
     rarity TEXT,
     inventory_count INTEGER DEFAULT 1,
+    original_ig_url TEXT, -- Link to the original IG post
+    source TEXT DEFAULT 'manual', -- 'manual' or 'instagram'
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -49,7 +51,10 @@ CREATE TABLE IF NOT EXISTS site_settings (
 -- Initial Settings
 INSERT INTO site_settings (key, value) VALUES 
 ('official_ig_handle', '@official_account'),
-('site_title', 'K-POP CARD')
+('site_title', 'K-POP CARD'),
+('checkout_intro', 'Enter your Instagram handle so we can track your request.'),
+('wishlist_footer_note', 'Please DM this image to complete your purchase.'),
+('low_stock_threshold', '2')
 ON CONFLICT (key) DO NOTHING;
 
 -- RLS Policies (Row Level Security)

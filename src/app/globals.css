@@ -1,16 +1,16 @@
 :root {
-  --background: #050505;
-  --foreground: #ffffff;
-  --primary: #c0a0ff;
-  --primary-hover: #d4bcff;
-  --secondary: #1a1a1a;
-  --accent: #ff4d94;
-  --card-bg: rgba(255, 255, 255, 0.03);
-  --card-border: rgba(255, 255, 255, 0.1);
-  --text-muted: #a0a0a0;
-  --shadow-premium: 0 8px 32px 0 rgba(0, 0, 0, 0.8);
-  --glass-bg: rgba(10, 10, 10, 0.7);
-  --glass-border: rgba(255, 255, 255, 0.1);
+  --background: linear-gradient(135deg, #FFEECF 0%, #F5D6E7 50%, #E8EEF6 100%);
+  --foreground: #1a1a2e;
+  --primary: #7d53de;
+  --primary-hover: #623bb6;
+  --secondary: #f2ebfa;
+  --accent: #e63b7a;
+  --card-bg: rgba(255, 255, 255, 0.45);
+  --card-border: rgba(255, 255, 255, 0.5);
+  --text-muted: #5a5a6b;
+  --shadow-premium: 0 8px 32px 0 rgba(125, 83, 222, 0.08);
+  --glass-bg: rgba(255, 255, 255, 0.5);
+  --glass-border: rgba(255, 255, 255, 0.5);
 }
 
 * {
@@ -24,6 +24,8 @@ body {
   max-width: 100vw;
   overflow-x: hidden;
   background: var(--background);
+  background-attachment: fixed;
+  background-size: cover;
   color: var(--foreground);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;

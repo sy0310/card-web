@@ -45,18 +45,18 @@
 
 .inputGroup input {
   width: 100%;
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.45);
   border: 1px solid var(--glass-border);
   padding: 1rem;
   border-radius: 12px;
-  color: white;
+  color: var(--foreground);
   font-size: 1rem;
 }
 
 .mainBtn {
   width: 100%;
   background: var(--primary);
-  color: black;
+  color: white;
   font-weight: 700;
   padding: 1rem;
   border-radius: 12px;
@@ -89,82 +89,135 @@
 /* Summary Template Styling (for Image Output) */
 .summaryTemplate {
   width: 600px;
-  background: #000000;
-  color: white;
+  background: #0d0d15;
+  color: #f3f4f6;
   padding: 40px;
   font-family: sans-serif;
-  border: 4px solid #c0a0ff;
+  border: 2px solid #c0a0ff;
+  border-radius: 24px;
 }
 
 .summaryHeader {
   text-align: center;
-  border-bottom: 2px solid #333;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   padding-bottom: 20px;
   margin-bottom: 20px;
 }
 
 .summaryHeader h1 {
-  font-size: 40px;
+  font-size: 36px;
+  font-weight: 800;
   margin: 0;
-  letter-spacing: 4px;
+  letter-spacing: 2px;
+  color: #ffffff;
 }
 
 .summaryHeader p {
   color: #c0a0ff;
-  letter-spacing: 2px;
-  margin: 5px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 4px;
+  margin: 8px 0 0;
+}
+
+.summaryInstruction {
+  background: rgba(192, 160, 255, 0.1);
+  border: 1px dashed rgba(192, 160, 255, 0.4);
+  padding: 20px;
+  border-radius: 16px;
+  margin-bottom: 25px;
+  text-align: left;
+}
+
+.summaryInstruction h3 {
+  font-size: 16px;
+  color: #c0a0ff;
+  margin: 0 0 8px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.summaryInstruction p {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #e5e7eb;
+  margin: 0;
 }
 
 .summaryUser {
-  background: #1a1a1a;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   padding: 15px 20px;
-  border-radius: 8px;
+  border-radius: 12px;
   margin-bottom: 25px;
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
+.summaryUser span {
+  color: #9ca3af;
+  font-size: 13px;
+}
+
+.summaryUser strong {
+  color: #ffffff;
+  font-size: 16px;
+}
+
 .summaryItems {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   margin-bottom: 30px;
 }
 
 .summaryItem {
   display: flex;
-  gap: 12px;
-  background: #0a0a0a;
-  border: 1px solid #222;
-  padding: 10px;
-  border-radius: 8px;
+  align-items: center;
+  gap: 16px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 14px;
+  border-radius: 12px;
 }
 
 .summaryItem img {
   width: 50px;
   height: 75px;
   object-fit: cover;
-  border-radius: 4px;
+  border-radius: 6px;
+}
+
+.summaryItemInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
 }
 
 .summaryItemInfo h4 {
-  font-size: 14px;
-  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #ffffff;
+  margin: 0;
 }
 
 .summaryItemInfo p {
   font-size: 12px;
   color: #c0a0ff;
-  margin: 0 0 8px;
+  margin: 0;
 }
 
-.summaryItemInfo span {
-  font-weight: bold;
+.summaryItemPrice {
+  margin-left: auto;
+  font-size: 16px;
+  font-weight: 700;
+  color: #ffffff;
 }
 
 .summaryFooter {
-  border-top: 2px solid #333;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
   padding-top: 20px;
   text-align: center;
 }
@@ -173,16 +226,19 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 15px;
+  margin-bottom: 10px;
+}
+
+.summaryTotal span {
+  font-size: 14px;
+  color: #9ca3af;
+  font-weight: 600;
+  letter-spacing: 1px;
 }
 
 .summaryTotal h2 {
-  font-size: 32px;
-  color: #c0a0ff;
+  font-size: 28px;
+  color: #ffffff;
   margin: 0;
-}
-
-.summaryFooter p {
-  font-size: 14px;
-  color: #888;
+  font-weight: 800;
 }

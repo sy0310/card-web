@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toPng } from 'html-to-image';
 import { useWishlist } from '@/context/WishlistContext';
 import { supabase } from '@/lib/supabase';
@@ -14,21 +14,28 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
   const [generatedImg, setGeneratedImg] = useState<string | null>(null);
   const [settings, setSettings] = useState({
     site_title: 'K-POP CARD',
-    official_ig_handle: '@official_account'
+    official_ig_handle: '@official_account',
+    checkout_intro: 'Enter your Instagram handle so we can track your request.',
+    wishlist_footer_note: 'Please DM this image to complete your purchase.'
   });
   const summaryRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetchSettings();
-  }, []);
+    let isMounted = true;
 
-  const fetchSettings = async () => {
-    const { data } = await supabase.from('site_settings').select('*');
-    if (data) {
-      const s = data.reduce((acc: any, curr: any) => ({ ...acc, [curr.key]: curr.value }), {});
-      setSettings(prev => ({ ...prev, ...s }));
-    }
-  };
+    void supabase
+      .from('site_settings')
+      .select('*')
+      .then(({ data }) => {
+        if (!isMounted || !data) return;
+        const s = data.reduce<Record<string, string>>((acc, curr) => ({ ...acc, [curr.key]: curr.value }), {});
+        setSettings(prev => ({ ...prev, ...s }));
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const handleGenerate = async () => {
     if (!igHandle) return alert('Please enter your Instagram handle');
@@ -67,8 +74,9 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
         setGeneratedImg(dataUrl);
         setStep(2);
       }
-    } catch (error: any) {
-      alert('Error processing request: ' + error.message);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      alert('Error processing request: ' + message);
     } finally {
       setLoading(false);
     }
@@ -92,7 +100,7 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
         {step === 1 ? (
           <div className={styles.step1}>
             <h3>Ready to Own Them?</h3>
-            <p>Enter your Instagram handle so we can track your request.</p>
+            <p>{settings.checkout_intro}</p>
             
             <div className={styles.inputGroup}>
               <label>Instagram Handle</label>
@@ -115,7 +123,7 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
         ) : (
           <div className={styles.step2}>
             <h3>Image Generated!</h3>
-            <p>Download this image and DM it to our Instagram staff to complete your purchase.</p>
+            <p>{settings.wishlist_footer_note} Send it to {settings.official_ig_handle}.</p>
             
             {generatedImg && <img src={generatedImg} alt="Wishlist Summary" className={styles.previewImg} />}
             
@@ -140,6 +148,13 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
               <h1>{settings.site_title}</h1>
               <p>WISHLIST REQUEST</p>
             </div>
+
+            <div className={styles.summaryInstruction}>
+              <h3>Instructions</h3>
+              <p>
+                Tysm for your interest! Pls DM <strong>@meguro_abebe</strong> on Instagram for payment info with this receipt. Pls understand price and availability may not be up to the date so changes may be made but you are free to decide whether to proceed with the change or not. Pls check carrd GO rules before DM! 💞
+              </p>
+            </div>
             
             <div className={styles.summaryUser}>
               <span>Instagram:</span>
@@ -153,7 +168,9 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
                   <div className={styles.summaryItemInfo}>
                     <h4>{item.title}</h4>
                     <p>{item.group_name}</p>
-                    <span>${item.price}</span>
+                  </div>
+                  <div className={styles.summaryItemPrice}>
+                    ${item.price}
                   </div>
                 </div>
               ))}
@@ -164,7 +181,8 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
                 <span>TOTAL ESTIMATED</span>
                 <h2>${totalPrice}</h2>
               </div>
-              <p>Please DM this image to {settings.official_ig_handle}</p>
+              <p style={{ color: '#9ca3af', fontSize: '12px', marginTop: '10px' }}>{settings.wishlist_footer_note}</p>
+              <p style={{ color: '#c0a0ff', fontSize: '13px', fontWeight: 'bold', margin: '5px 0 0' }}>{settings.official_ig_handle}</p>
             </div>
           </div>
         </div>

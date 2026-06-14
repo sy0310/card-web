@@ -48,7 +48,7 @@
   width: 100%;
   padding: 1.2rem 2rem;
   border-radius: 100px;
-  color: white;
+  color: var(--foreground);
   font-size: 1.1rem;
 }
 
@@ -63,7 +63,7 @@
 .filterBtn {
   padding: 0.6rem 1.2rem;
   border-radius: 100px;
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.35);
   border: 1px solid var(--glass-border);
   color: var(--text-muted);
   font-size: 0.9rem;
@@ -72,12 +72,12 @@
 
 .filterBtn:hover {
   border-color: var(--primary);
-  color: white;
+  color: var(--primary);
 }
 
 .activeFilter {
   background: var(--primary);
-  color: black;
+  color: white;
   border-color: var(--primary);
   font-weight: 600;
 }
