@@ -32,17 +32,45 @@ export default function Home() {
   useEffect(() => {
     let isMounted = true;
 
-    void supabase
-      .from('cards')
-      .select('*')
-      .range(0, 4999)
-      .order('created_at', { ascending: false })
-      .then(({ data }) => {
-        if (isMounted && data) setCards(data as StorefrontCard[]);
-      })
-      .then(() => {
-        if (isMounted) setLoading(false);
-      });
+    const loadAllCards = async () => {
+      let allCards: StorefrontCard[] = [];
+      let offset = 0;
+      const limit = 1000;
+      let hasMore = true;
+
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from('cards')
+          .select('*')
+          .range(offset, offset + limit - 1)
+          .order('created_at', { ascending: false });
+
+        if (error) {
+          console.error('Error loading cards:', error.message);
+          hasMore = false;
+          break;
+        }
+
+        if (!data || data.length === 0) {
+          hasMore = false;
+          break;
+        }
+
+        allCards = [...allCards, ...(data as StorefrontCard[])];
+        if (data.length < limit) {
+          hasMore = false;
+        } else {
+          offset += limit;
+        }
+      }
+
+      if (isMounted) {
+        setCards(allCards);
+        setLoading(false);
+      }
+    };
+
+    void loadAllCards();
 
     void supabase
       .from('site_settings')

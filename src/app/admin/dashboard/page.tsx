@@ -62,17 +62,38 @@ export default function AdminDashboard() {
 
   const fetchCards = useCallback(async () => {
     setLoadingCards(true);
-    const { data, error } = await supabase
-      .from('cards')
-      .select('*')
-      .range(0, 4999)
-      .order('created_at', { ascending: false });
+    let allCards: AdminCard[] = [];
+    let offset = 0;
+    const limit = 1000;
+    let hasMore = true;
 
-    if (error) {
-      setStatusMessage(`Could not load cards: ${error.message}`);
-    } else {
-      setCards((data ?? []) as AdminCard[]);
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from('cards')
+        .select('*')
+        .range(offset, offset + limit - 1)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        setStatusMessage(`Could not load cards: ${error.message}`);
+        hasMore = false;
+        break;
+      }
+
+      if (!data || data.length === 0) {
+        hasMore = false;
+        break;
+      }
+
+      allCards = [...allCards, ...(data as AdminCard[])];
+      if (data.length < limit) {
+        hasMore = false;
+      } else {
+        offset += limit;
+      }
     }
+
+    setCards(allCards);
     setLoadingCards(false);
   }, []);
 
