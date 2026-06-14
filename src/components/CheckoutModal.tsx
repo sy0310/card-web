@@ -167,10 +167,10 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
                   <img src={item.image_url} alt="" />
                   <div className={styles.summaryItemInfo}>
                     <h4>{item.title}</h4>
-                    <p>{item.group_name}</p>
+                    <p>{item.group_name} {item.quantity > 1 ? ` (x${item.quantity})` : ''}</p>
                   </div>
                   <div className={styles.summaryItemPrice}>
-                    ${item.price}
+                    ${(Number(item.price) * item.quantity).toFixed(2)}
                   </div>
                 </div>
               ))}

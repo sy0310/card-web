@@ -11,7 +11,7 @@ def strip_hashtag_from_title(title):
     return title
 
 def main():
-    print("🚀 Starting database cleanup (removing duplicates & stripping '#' from titles)...")
+    print("🚀 Starting comprehensive database cleanup (deduping & stripping '#' from all titles)...")
 
     # 1. Parse .env.local manually
     env = {}
@@ -52,20 +52,35 @@ def main():
         "Content-Type": "application/json"
     }
 
-    # 2. Fetch all cards
-    print("🔍 Fetching cards from database...")
-    try:
-        url = f"{supabase_url}/rest/v1/cards?select=id,title,description,created_at"
-        response = requests.get(url, headers=headers, proxies=proxies, timeout=30)
-        response.raise_for_status()
-        cards = response.json()
-    except Exception as e:
-        print(f"❌ Failed to fetch cards: {e}")
-        sys.exit(1)
+    # 2. Fetch all cards with paging
+    print("🔍 Fetching all cards from database using pagination...")
+    cards = []
+    page = 0
+    page_size = 1000
+    while True:
+        try:
+            url = f"{supabase_url}/rest/v1/cards?select=id,title,description,created_at"
+            range_headers = {
+                **headers,
+                "Range": f"{page * page_size}-{(page + 1) * page_size - 1}"
+            }
+            response = requests.get(url, headers=range_headers, proxies=proxies, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            if not data:
+                break
+            cards.extend(data)
+            print(f"   Fetched {len(data)} cards (total: {len(cards)})...")
+            if len(data) < page_size:
+                break
+            page += 1
+        except Exception as e:
+            print(f"❌ Failed to fetch cards on page {page}: {e}")
+            sys.exit(1)
 
-    print(f"ℹ️ Retrieved {len(cards)} cards.")
+    print(f"ℹ️ Retrieved total of {len(cards)} cards for cleanup.")
 
-    # 3. Detect duplicates & prepare deletions
+    # 3. Detect duplicates by title and description
     groups = {}
     for card in cards:
         title = card.get('title') or ""
@@ -95,25 +110,38 @@ def main():
             del_resp = requests.delete(delete_url, headers=headers, proxies=proxies, timeout=15)
             del_resp.raise_for_status()
             deleted_count += 1
-            if deleted_count % 10 == 0:
+            if deleted_count % 50 == 0:
                 print(f"   Deleted {deleted_count}/{len(delete_ids)} duplicates...")
         except Exception as e:
             print(f"   ❌ Failed to delete card [{card_id}]: {e}")
 
     print(f"✅ Successfully deleted {deleted_count} duplicates.")
 
+    # 4. Clean Titles (Strip hashtags)
     # Re-fetch cards after deletion to perform title cleanup
     print("\n🔍 Re-fetching remaining cards for title cleaning...")
-    try:
-        url = f"{supabase_url}/rest/v1/cards?select=id,title"
-        response = requests.get(url, headers=headers, proxies=proxies, timeout=30)
-        response.raise_for_status()
-        remaining_cards = response.json()
-    except Exception as e:
-        print(f"❌ Failed to re-fetch remaining cards: {e}")
-        sys.exit(1)
+    remaining_cards = []
+    page = 0
+    while True:
+        try:
+            url = f"{supabase_url}/rest/v1/cards?select=id,title"
+            range_headers = {
+                **headers,
+                "Range": f"{page * page_size}-{(page + 1) * page_size - 1}"
+            }
+            response = requests.get(url, headers=range_headers, proxies=proxies, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            if not data:
+                break
+            remaining_cards.extend(data)
+            if len(data) < page_size:
+                break
+            page += 1
+        except Exception as e:
+            print(f"❌ Failed to fetch remaining cards page {page}: {e}")
+            sys.exit(1)
 
-    # 4. Clean Titles (Strip hashtags)
     repaired_titles_count = 0
     for card in remaining_cards:
         card_id = card.get('id')
@@ -133,7 +161,7 @@ def main():
                 print(f"   ❌ Failed to update card title for [{card_id}]: {e}")
 
     print(f"✅ Successfully cleaned {repaired_titles_count} card titles in database.")
-    print("\n🏁 Database cleanup execution complete!")
+    print("\n🏁 Comprehensive database cleanup complete!")
 
 if __name__ == '__main__':
     main()

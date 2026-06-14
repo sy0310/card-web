@@ -299,7 +299,7 @@ export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
               <img src={singleFilePreview} alt="Preview" className={styles.previewImg} />
               <div className={styles.previewInfo}>
                 <strong>{singleData.title || 'Card Title'}</strong>
-                <span>Price: ${singleData.price || '0.00'} | Stock: {singleData.inventory_count}</span>
+                <span>Price: ${singleData.price || '0.00'}</span>
                 <span>{singleData.group_name || 'No Group'} • {singleData.album_era || 'No Album'} {singleData.pob_name ? `• POB: ${singleData.pob_name}` : ''}</span>
               </div>
             </div>
@@ -351,24 +351,13 @@ export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
           </div>
 
           <div className={styles.row}>
-            <div className={styles.inputGroup}>
+            <div className={`${styles.inputGroup} ${styles.fullWidth}`}>
               <label>POB Name (Inclusion)</label>
               <input
                 type="text"
                 value={singleData.pob_name}
                 onChange={(e) => handleSingleFieldChange('pob_name', e.target.value)}
                 placeholder="e.g. Starriver, Makestar"
-              />
-            </div>
-            <div className={styles.inputGroup}>
-              <label>Stock</label>
-              <input
-                type="number"
-                min="1"
-                step="1"
-                value={singleData.inventory_count}
-                onChange={(e) => handleSingleFieldChange('inventory_count', e.target.value)}
-                placeholder="1"
               />
             </div>
           </div>

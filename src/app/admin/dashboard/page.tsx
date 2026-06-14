@@ -161,20 +161,7 @@ export default function AdminDashboard() {
     setSavingSettings(false);
   };
 
-  const handleUpdateStock = async (cardId: string, newCount: number) => {
-    const nextCount = Math.max(0, newCount);
-    const { error } = await supabase
-      .from('cards')
-      .update({ inventory_count: nextCount })
-      .eq('id', cardId);
 
-    if (error) {
-      setStatusMessage(`Error updating stock: ${error.message}`);
-    } else {
-      setCards(current => applyCardPatch(current, cardId, { inventory_count: nextCount }));
-      setStatusMessage('Stock updated.');
-    }
-  };
 
   const handleEditCard = (card: AdminCard) => {
     setEditingCard(card);
@@ -320,7 +307,7 @@ export default function AdminDashboard() {
                 <div className={styles.previewMeta}>
                   <strong>{cardDraft.title || 'Untitled card'}</strong>
                   <span>{cardDraft.group_name || 'No group'} / {cardDraft.member_name || 'No member'}</span>
-                  <span>${cardDraft.price || '0.00'} / Stock {cardDraft.inventory_count || '0'}</span>
+                  <span>${cardDraft.price || '0.00'}</span>
                   {cardDraft.pob_name && <span>POB: {cardDraft.pob_name}</span>}
                 </div>
               </div>
@@ -387,16 +374,7 @@ export default function AdminDashboard() {
                     onChange={event => handleCardDraftChange('rarity', event.target.value)}
                   />
                 </label>
-                <label className={styles.field}>
-                  <span>Stock</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={cardDraft.inventory_count}
-                    onChange={event => handleCardDraftChange('inventory_count', event.target.value)}
-                  />
-                </label>
+
                 <label className={styles.field}>
                   <span>Source</span>
                   <select
@@ -543,7 +521,6 @@ export default function AdminDashboard() {
                       <th>Group</th>
                       <th>POB</th>
                       <th>Price</th>
-                      <th>Stock</th>
                       <th>Actions</th>
                     </tr>
                   </thead>
@@ -562,13 +539,7 @@ export default function AdminDashboard() {
                         <td>{card.group_name || '-'}</td>
                         <td>{card.pob_name || '-'}</td>
                         <td>${Number(card.price || 0).toFixed(2)}</td>
-                        <td>
-                          <div className={styles.stockControl}>
-                            <button onClick={() => void handleUpdateStock(card.id, Number(card.inventory_count) - 1)}>-</button>
-                            <span>{Number(card.inventory_count) || 0}</span>
-                            <button onClick={() => void handleUpdateStock(card.id, Number(card.inventory_count) + 1)}>+</button>
-                          </div>
-                        </td>
+
                         <td>
                           <div className={styles.actionGroup}>
                             <button className={styles.editBtn} onClick={() => handleEditCard(card)}>

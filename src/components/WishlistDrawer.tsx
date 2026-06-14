@@ -6,7 +6,7 @@ import { useState } from 'react';
 import CheckoutModal from './CheckoutModal';
 
 export default function WishlistDrawer({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) {
-  const { items, removeFromWishlist, totalPrice } = useWishlist();
+  const { items, removeFromWishlist, updateQuantity, totalPrice } = useWishlist();
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
 
   if (!isOpen) return null;
@@ -39,7 +39,14 @@ export default function WishlistDrawer({ isOpen, onClose }: { isOpen: boolean, o
                 <div className={styles.itemInfo}>
                   <h4>{item.title}</h4>
                   <p>{item.group_name}</p>
-                  <span className={styles.itemPrice}>${item.price}</span>
+                  <div className={styles.priceAndQty}>
+                    <span className={styles.itemPrice}>${(Number(item.price) * item.quantity).toFixed(2)}</span>
+                    <div className={styles.qtyControl}>
+                      <button onClick={() => updateQuantity(item.id, item.quantity - 1)}>-</button>
+                      <span>{item.quantity}</span>
+                      <button onClick={() => updateQuantity(item.id, item.quantity + 1)}>+</button>
+                    </div>
+                  </div>
                 </div>
                 <button 
                   onClick={() => removeFromWishlist(item.id)}
