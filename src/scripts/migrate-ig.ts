@@ -45,6 +45,18 @@ const supabase = createClient(supabaseUrl, supabaseKey, {
 
 const EXPORT_DIR = path.join(process.cwd(), 'ig_export');
 
+type MigratedCardInsert = {
+  title: string;
+  description: string;
+  price: number;
+  group_name: string;
+  album_era: string;
+  member_name: string;
+  image_url: string;
+  source: 'instagram';
+  original_ig_url: string;
+};
+
 async function getExistingStorageFiles(): Promise<Set<string>> {
   const existingFiles = new Set<string>();
   let offset = 0;
@@ -92,14 +104,16 @@ async function asyncPool<T, R>(
   iteratorFn: (item: T) => Promise<R>
 ): Promise<R[]> {
   const results: Promise<R>[] = [];
-  const executing: Promise<any>[] = [];
+  const executing: Promise<void>[] = [];
   
   for (const item of iterable) {
     const p = Promise.resolve().then(() => iteratorFn(item));
     results.push(p);
     
     if (concurrency <= iterable.length) {
-      const e: Promise<any> = p.then(() => executing.splice(executing.indexOf(e), 1));
+      const e: Promise<void> = p.then(() => {
+        executing.splice(executing.indexOf(e), 1);
+      });
       executing.push(e);
       if (executing.length >= concurrency) {
         await Promise.race(executing);
@@ -166,7 +180,7 @@ async function migrate() {
 
   console.log(`🚀 Processing metadata for ${textFiles.length} posts...`);
 
-  const cardsToInsert: any[] = [];
+  const cardsToInsert: MigratedCardInsert[] = [];
   const uploadTasks: { baseName: string; fileName: string; imgPath: string }[] = [];
   let alreadyExistInBoth = 0;
   let onlyNeedUpload = 0;
@@ -261,8 +275,9 @@ async function migrate() {
             console.log(`   Uploaded ${uploadedCount}/${uploadTasks.length} images...`);
           }
         }
-      } catch (err: any) {
-        console.error(`❌ Exception uploading ${task.fileName}:`, err.message);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`❌ Exception uploading ${task.fileName}:`, message);
         failedCount++;
       }
     });

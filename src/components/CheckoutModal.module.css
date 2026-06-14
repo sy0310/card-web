@@ -73,7 +73,7 @@
 
 .previewImg {
   width: 100%;
-  max-height: 300px;
+  max-height: 420px;
   object-fit: contain;
   margin: 1.5rem 0;
   border: 1px solid var(--glass-border);
@@ -88,13 +88,14 @@
 
 /* Summary Template Styling (for Image Output) */
 .summaryTemplate {
-  width: 600px;
-  background: #0d0d15;
+  width: 640px;
+  background: #101016;
   color: #f3f4f6;
-  padding: 40px;
+  padding: 36px;
   font-family: sans-serif;
-  border: 2px solid #c0a0ff;
-  border-radius: 24px;
+  border: 1px solid #6d5ee8;
+  border-radius: 20px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
 
 .summaryHeader {
@@ -105,7 +106,7 @@
 }
 
 .summaryHeader h1 {
-  font-size: 36px;
+  font-size: 34px;
   font-weight: 800;
   margin: 0;
   letter-spacing: 2px;
@@ -120,32 +121,8 @@
   margin: 8px 0 0;
 }
 
-.summaryInstruction {
-  background: rgba(192, 160, 255, 0.1);
-  border: 1px dashed rgba(192, 160, 255, 0.4);
-  padding: 20px;
-  border-radius: 16px;
-  margin-bottom: 25px;
-  text-align: left;
-}
-
-.summaryInstruction h3 {
-  font-size: 16px;
-  color: #c0a0ff;
-  margin: 0 0 8px;
-  font-weight: 700;
-  letter-spacing: 1px;
-}
-
-.summaryInstruction p {
-  font-size: 13px;
-  line-height: 1.5;
-  color: #e5e7eb;
-  margin: 0;
-}
-
 .summaryUser {
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.08);
   padding: 15px 20px;
   border-radius: 12px;
@@ -176,24 +153,38 @@
   display: flex;
   align-items: center;
   gap: 16px;
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(255, 255, 255, 0.035);
   border: 1px solid rgba(255, 255, 255, 0.06);
   padding: 14px;
   border-radius: 12px;
 }
 
-.summaryItem img {
-  width: 50px;
-  height: 75px;
+.summaryThumb {
+  width: 58px;
+  height: 78px;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(109, 94, 232, 0.28), rgba(255, 127, 178, 0.18)),
+    #181822;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.summaryThumb img {
+  width: 100%;
+  height: 100%;
   object-fit: cover;
-  border-radius: 6px;
+  display: block;
 }
 
 .summaryItemInfo {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 4px;
   text-align: left;
+  min-width: 0;
 }
 
 .summaryItemInfo h4 {
@@ -201,6 +192,7 @@
   font-weight: 600;
   color: #ffffff;
   margin: 0;
+  line-height: 1.35;
 }
 
 .summaryItemInfo p {
@@ -211,6 +203,7 @@
 
 .summaryItemPrice {
   margin-left: auto;
+  flex: 0 0 auto;
   font-size: 16px;
   font-weight: 700;
   color: #ffffff;
@@ -241,4 +234,37 @@
   color: #ffffff;
   margin: 0;
   font-weight: 800;
+}
+
+.summaryNextStep {
+  margin-top: 18px;
+  padding: 16px 18px;
+  border-radius: 14px;
+  background: rgba(255, 127, 178, 0.08);
+  border: 1px solid rgba(255, 127, 178, 0.2);
+  text-align: left;
+}
+
+.summaryNextStep span {
+  display: block;
+  color: #ff9fca;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.summaryNextStep p {
+  color: #d7d9e0;
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.summaryNextStep strong {
+  display: block;
+  color: #ffffff;
+  font-size: 13px;
+  margin-top: 8px;
 }

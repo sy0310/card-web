@@ -19,6 +19,11 @@ async function cleanup() {
     .from('cards')
     .list('migrated');
 
+  if (listError) {
+    console.error('❌ Storage List Error:', listError.message);
+    return;
+  }
+
   if (files && files.length > 0) {
     const paths = files.map(f => `migrated/${f.name}`);
     const { error: deleteError } = await supabase.storage.from('cards').remove(paths);

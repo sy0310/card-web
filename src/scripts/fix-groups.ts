@@ -50,10 +50,17 @@ const KNOWN_GROUPS = [
   { pattern: /\bitzy\b/i, name: 'Itzy' }
 ];
 
+type CardGroupRecord = {
+  id: string;
+  title: string | null;
+  description: string | null;
+  group_name: string | null;
+};
+
 async function main() {
   console.log('🚀 Starting regex-based group_name path correction...');
 
-  let allCards: any[] = [];
+  let allCards: CardGroupRecord[] = [];
   let page = 0;
   const pageSize = 1000;
 
@@ -68,7 +75,7 @@ async function main() {
       return;
     }
     if (!data || data.length === 0) break;
-    allCards = allCards.concat(data);
+    allCards = allCards.concat(data as CardGroupRecord[]);
     if (data.length < pageSize) break;
     page++;
   }

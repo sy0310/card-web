@@ -34,12 +34,12 @@ async function check() {
       } else {
         console.log('✅ Image URL is accessible! Response OK.');
       }
-    } catch (e: any) {
-      console.error('Fetch error:', e.message);
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.error('Fetch error:', message);
     }
   }
 }
 check();
-
 
 

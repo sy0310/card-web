@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { toPng } from 'html-to-image';
 import { useWishlist } from '@/context/WishlistContext';
 import { supabase } from '@/lib/supabase';
+import { buildReceiptImageSrc, waitForImages } from './checkoutImageUtils';
 import styles from './CheckoutModal.module.css';
 
 export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) {
@@ -69,8 +70,16 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
 
       // 3. Generate Image
       if (summaryRef.current) {
-        // Give time for the hidden summary to render
-        const dataUrl = await toPng(summaryRef.current, { cacheBust: true, quality: 1 });
+        const imageReport = await waitForImages(summaryRef.current);
+        if (imageReport.failed > 0) {
+          console.warn('Some receipt images failed to load before export:', imageReport);
+        }
+
+        const dataUrl = await toPng(summaryRef.current, {
+          cacheBust: true,
+          includeQueryParams: true,
+          quality: 1,
+        });
         setGeneratedImg(dataUrl);
         setStep(2);
       }
@@ -123,7 +132,7 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
         ) : (
           <div className={styles.step2}>
             <h3>Image Generated!</h3>
-            <p>{settings.wishlist_footer_note} Send it to {settings.official_ig_handle}.</p>
+            <p>Download the receipt and DM it to {settings.official_ig_handle}.</p>
             
             {generatedImg && <img src={generatedImg} alt="Wishlist Summary" className={styles.previewImg} />}
             
@@ -149,13 +158,6 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
               <p>WISHLIST REQUEST</p>
             </div>
 
-            <div className={styles.summaryInstruction}>
-              <h3>Instructions</h3>
-              <p>
-                {settings.wishlist_footer_note}
-              </p>
-            </div>
-            
             <div className={styles.summaryUser}>
               <span>Instagram:</span>
               <strong>{igHandle}</strong>
@@ -164,7 +166,14 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
             <div className={styles.summaryItems}>
               {items.map(item => (
                 <div key={item.id} className={styles.summaryItem}>
-                  <img src={`${item.image_url}${item.image_url.includes('?') ? '&' : '?'}nocache=true`} crossOrigin="anonymous" alt="" />
+                  <div className={styles.summaryThumb}>
+                    <img
+                      src={buildReceiptImageSrc(item.image_url, `${item.id}-${item.quantity}`)}
+                      alt={item.title}
+                      loading="eager"
+                      decoding="sync"
+                    />
+                  </div>
                   <div className={styles.summaryItemInfo}>
                     <h4>{item.title}</h4>
                     <p>{item.group_name} {item.quantity > 1 ? ` (x${item.quantity})` : ''}</p>
@@ -181,8 +190,11 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
                 <span>TOTAL ESTIMATED</span>
                 <h2>${Number(totalPrice).toFixed(2)}</h2>
               </div>
-              <p style={{ color: '#9ca3af', fontSize: '12px', marginTop: '10px' }}>{settings.wishlist_footer_note}</p>
-              <p style={{ color: '#c0a0ff', fontSize: '13px', fontWeight: 'bold', margin: '5px 0 0' }}>{settings.official_ig_handle}</p>
+              <div className={styles.summaryNextStep}>
+                <span>Next step</span>
+                <p>{settings.wishlist_footer_note}</p>
+                <strong>{settings.official_ig_handle}</strong>
+              </div>
             </div>
           </div>
         </div>
