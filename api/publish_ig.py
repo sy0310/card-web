@@ -4,6 +4,7 @@ import os
 import urllib.request
 import tempfile
 import sys
+import traceback
 
 # Load local .env.local values as fallback for development
 try:
@@ -45,14 +46,14 @@ class handler(BaseHTTPRequestHandler):
             if not session_id:
                 self._send_json({'error': 'session_id not configured in environment'}, 500)
                 return
-
+            
+            # 3. Setup instagrapi client
             try:
                 from instagrapi import Client
             except Exception as import_error:
                 self._send_json({'error': f'Instagram publisher dependency is not available: {import_error}'}, 500)
                 return
-            
-            # 3. Setup instagrapi client
+
             cl = Client()
             cl.request_timeout = 20
             
@@ -88,7 +89,8 @@ class handler(BaseHTTPRequestHandler):
             self._send_json(res_data, 200)
             
         except Exception as e:
-            self._send_json({'error': str(e)}, 500)
+            error_detail = f"{str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+            self._send_json({'error': error_detail}, 500)
         finally:
             # Cleanup temp file
             if temp_path and os.path.exists(temp_path):
