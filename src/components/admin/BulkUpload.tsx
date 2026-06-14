@@ -323,7 +323,13 @@ export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
           
           {singleFilePreview && (
             <div className={styles.previewBox}>
-              <img src={singleFilePreview} alt="Preview" className={styles.previewImg} />
+              <div className={styles.previewImgContainer}>
+                <div 
+                  className={styles.previewBlurBackground} 
+                  style={{ backgroundImage: `url(${singleFilePreview})` }}
+                />
+                <img src={singleFilePreview} alt="Preview" className={styles.previewImg} />
+              </div>
               <div className={styles.previewInfo}>
                 <strong>{singleData.title || 'Card Title'}</strong>
                 <span>Price: ${singleData.price || '0.00'}</span>

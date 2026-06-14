@@ -446,7 +446,13 @@ export default function AdminDashboard() {
 
             <div className={styles.editorBody}>
               <div className={styles.previewColumn}>
-                <img src={imagePreviewUrl || cardDraft.image_url || editingCard.image_url} alt={cardDraft.title} className={styles.editorImage} />
+                <div className={styles.editorImageContainer}>
+                  <div 
+                    className={styles.editorBlurBackground} 
+                    style={{ backgroundImage: `url(${imagePreviewUrl || cardDraft.image_url || editingCard.image_url})` }}
+                  />
+                  <img src={imagePreviewUrl || cardDraft.image_url || editingCard.image_url} alt={cardDraft.title} className={styles.editorImage} />
+                </div>
                 <div className={styles.previewMeta}>
                   <strong>{cardDraft.title || 'Untitled card'}</strong>
                   <span>{cardDraft.group_name || 'No group'} / {cardDraft.member_name || 'No member'}</span>
