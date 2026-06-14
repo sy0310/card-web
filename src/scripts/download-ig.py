@@ -79,14 +79,37 @@ def main():
         print(f"❌ Failed to resolve user ID for username {username}: {e}")
         sys.exit(1)
 
-    # 4. Fetch medias (posts)
-    print("Fetching posts from profile...")
-    try:
-        medias = cl.user_medias(user_id, amount=2000)
-        print(f"📋 Fetched {len(medias)} posts from Instagram.")
-    except Exception as e:
-        print(f"❌ Failed to fetch medias: {e}")
-        sys.exit(1)
+    # 4. Fetch medias (posts) using manual pagination and cooldowns to bypass 429 rate limit
+    print("Fetching posts from profile with pagination and sleep cooldowns...")
+    medias = []
+    end_cursor = ""
+    page = 1
+    import time
+    
+    while len(medias) < 1850:
+        print(f"📖 Fetching page {page} from profile (cursor: '{end_cursor}')...")
+        try:
+            page_medias, end_cursor = cl.user_medias_paginated(user_id, amount=100, end_cursor=end_cursor)
+            if not page_medias:
+                print("ℹ️ No more medias returned from Instagram.")
+                break
+                
+            medias.extend(page_medias)
+            print(f"   Fetched {len(page_medias)} posts. Total gathered: {len(medias)}")
+            
+            if not end_cursor:
+                print("ℹ️ Reached the end of profile (no cursor left).")
+                break
+                
+            time.sleep(1.2)  # 1.2 seconds cooldown between API requests to prevent 429
+            page += 1
+        except Exception as e:
+            print(f"❌ Failed to fetch page {page}: {e}")
+            print("   Waiting 15 seconds before retrying this page...")
+            time.sleep(15)
+            continue
+            
+    print(f"📋 Completed list scan. Total posts fetched: {len(medias)}")
 
     # 5. Download missing posts
     os.makedirs('ig_export', exist_ok=True)
@@ -116,23 +139,28 @@ def main():
             print(f"⚠️ Failed to write caption file for {dt_str}: {e}")
             continue
 
-        # Download Photo/Thumbnail
+        # Download Photo/Thumbnail using private request session with 15s timeout
         try:
+            img_url = None
             if media.media_type == 1:  # Photo
-                downloaded_path = cl.photo_download(media.pk, folder='ig_export')
-                # Rename the file to our target dt_str name
-                if os.path.exists(downloaded_path):
-                    target_path = f"ig_export/{dt_str}.jpg"
-                    if os.path.exists(target_path):
-                        os.remove(target_path)
-                    os.rename(str(downloaded_path), target_path)
+                img_url = media.thumbnail_url
             elif media.media_type == 8:  # Album (Carousel)
-                # Download the first slide thumbnail
-                first_slide = media.resources[0]
-                cl.photo_download_by_url(first_slide.thumbnail_url, filename=dt_str, folder='ig_export')
+                img_url = media.resources[0].thumbnail_url if media.resources else media.thumbnail_url
             else:
                 # Video or other, download thumbnail
-                cl.photo_download_by_url(media.thumbnail_url, filename=dt_str, folder='ig_export')
+                img_url = media.thumbnail_url
+
+            if not img_url:
+                raise Exception("No valid image URL found")
+
+            # Fetch via clean requests to avoid API session headers causing 404 from CDN
+            import requests
+            proxies = {"http": proxy, "https": proxy} if proxy else None
+            # Download using clean session with 15s timeout
+            img_res = requests.get(img_url, proxies=proxies, timeout=15)
+            img_res.raise_for_status()
+            with open(jpg_path, 'wb') as f:
+                f.write(img_res.content)
             
             download_count += 1
             print(f"   Saved to {jpg_path}")
