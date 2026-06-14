@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { publishInstagramPost } from '@/lib/server/instagramPublisher';
 import { authenticateAdminRequest } from '@/lib/server/supabaseAdmin';
 
 export const runtime = 'nodejs';
@@ -16,7 +15,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing imageUrl or caption' }, { status: 400 });
     }
 
-    const result = await publishInstagramPost({ imageUrl, caption });
+    const origin = request.nextUrl.origin;
+    const publishRes = await fetch(`${origin}/api/publish_ig`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ imageUrl, caption }),
+    });
+
+    const result = await publishRes.json();
+    if (!publishRes.ok || result.error) {
+      throw new Error(result.error || 'Instagram publication failed');
+    }
 
     if (cardId) {
       const { error: dbError } = await auth.supabaseAdmin

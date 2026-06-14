@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/publish_ig",
+      "destination": "/api/publish_ig.py"
+    }
+  ]
+}

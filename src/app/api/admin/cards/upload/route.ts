@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { publishInstagramPost } from '@/lib/server/instagramPublisher';
 import { authenticateAdminRequest } from '@/lib/server/supabaseAdmin';
 import {
   buildCardImagePath,
@@ -93,10 +92,22 @@ export async function POST(request: NextRequest) {
 
     if (cardFields.syncToIg) {
       try {
-        const result = await publishInstagramPost({
-          imageUrl: publicUrl,
-          caption: cardFields.igCaption,
+        const origin = request.nextUrl.origin;
+        const publishRes = await fetch(`${origin}/api/publish_ig`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            imageUrl: publicUrl,
+            caption: cardFields.igCaption,
+          }),
         });
+
+        const result = await publishRes.json();
+        if (!publishRes.ok || result.error) {
+          throw new Error(result.error || 'Instagram publication failed');
+        }
 
         instagram = { success: true, url: result.url };
 

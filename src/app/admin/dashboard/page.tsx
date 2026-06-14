@@ -63,6 +63,20 @@ export default function AdminDashboard() {
   const [updatingWishlists, setUpdatingWishlists] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
   const router = useRouter();
+  const [searchTerm, setSearchTerm] = useState('');
+
+  const filteredCards = useMemo(() => {
+    if (!searchTerm.trim()) return cards;
+    const term = searchTerm.toLowerCase().trim();
+    return cards.filter(
+      card =>
+        card.title?.toLowerCase().includes(term) ||
+        card.group_name?.toLowerCase().includes(term) ||
+        card.pob_name?.toLowerCase().includes(term) ||
+        card.album_era?.toLowerCase().includes(term) ||
+        card.member_name?.toLowerCase().includes(term)
+    );
+  }, [cards, searchTerm]);
 
   const fetchCards = useCallback(async () => {
     setLoadingCards(true);
@@ -669,81 +683,106 @@ export default function AdminDashboard() {
               </div>
             </section>
 
+            <div className={styles.searchBar}>
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search card title, group, member, POB or album..."
+                className={styles.searchInput}
+              />
+              {searchTerm && (
+                <button
+                  type="button"
+                  className={styles.clearSearchBtn}
+                  onClick={() => setSearchTerm('')}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+
             <div className={styles.inventoryList}>
               {loadingCards ? (
                 <p className={styles.emptyText}>Loading inventory...</p>
               ) : cards.length > 0 ? (
-                <table className={styles.table}>
-                  <thead>
-                    <tr>
-                      <th style={{ width: '45px', textAlign: 'center' }}>
-                        <input
-                          type="checkbox"
-                          checked={cards.length > 0 && selectedIds.length === cards.length}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedIds(cards.map(c => c.id));
-                            } else {
-                              setSelectedIds([]);
-                            }
-                          }}
-                        />
-                      </th>
-                      <th>Preview</th>
-                      <th>Title</th>
-                      <th>Group</th>
-                      <th>POB</th>
-                      <th>Price</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {cards.map(card => (
-                      <tr key={card.id}>
-                        <td style={{ textAlign: 'center' }}>
+                filteredCards.length > 0 ? (
+                  <table className={styles.table}>
+                    <thead>
+                      <tr>
+                        <th style={{ width: '45px', textAlign: 'center' }}>
                           <input
                             type="checkbox"
-                            checked={selectedIds.includes(card.id)}
+                            checked={filteredCards.length > 0 && selectedIds.length === filteredCards.length}
                             onChange={(e) => {
                               if (e.target.checked) {
-                                setSelectedIds(prev => [...prev, card.id]);
+                                setSelectedIds(filteredCards.map(c => c.id));
                               } else {
-                                setSelectedIds(prev => prev.filter(id => id !== card.id));
+                                setSelectedIds([]);
                               }
                             }}
                           />
-                        </td>
-                        <td>
-                          <img src={card.image_url} alt={card.title} className={styles.miniImg} />
-                        </td>
-                        <td>
-                          <div className={styles.cardTitleCell}>
-                            <strong>{card.title}</strong>
-                            <span>{card.member_name || card.album_era || 'No extra metadata'}</span>
-                          </div>
-                        </td>
-                        <td>{card.group_name || '-'}</td>
-                        <td>{card.pob_name || '-'}</td>
-                        <td>${Number(card.price || 0).toFixed(2)}</td>
-
-                        <td>
-                          <div className={styles.actionGroup}>
-                            <button className={styles.editBtn} onClick={() => handleEditCard(card)}>
-                              Edit
-                            </button>
-                            <button
-                              className={styles.deleteInlineBtn}
-                              onClick={() => void handleDeleteCard(card)}
-                              disabled={deletingCardId === card.id}
-                            >
-                              {deletingCardId === card.id ? 'Deleting' : 'Delete'}
-                            </button>
-                          </div>
-                        </td>
+                        </th>
+                        <th>Preview</th>
+                        <th>Title</th>
+                        <th>Group</th>
+                        <th>POB</th>
+                        <th>Price</th>
+                        <th>Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {filteredCards.map(card => (
+                        <tr key={card.id}>
+                          <td style={{ textAlign: 'center' }}>
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.includes(card.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedIds(prev => [...prev, card.id]);
+                                } else {
+                                  setSelectedIds(prev => prev.filter(id => id !== card.id));
+                                }
+                              }}
+                            />
+                          </td>
+                          <td>
+                            <img src={card.image_url} alt={card.title} className={styles.miniImg} />
+                          </td>
+                          <td>
+                            <div className={styles.cardTitleCell}>
+                              <strong>{card.title}</strong>
+                              <span>{card.member_name || card.album_era || 'No extra metadata'}</span>
+                            </div>
+                          </td>
+                          <td>{card.group_name || '-'}</td>
+                          <td>{card.pob_name || '-'}</td>
+                          <td>${Number(card.price || 0).toFixed(2)}</td>
+
+                          <td>
+                            <div className={styles.actionGroup}>
+                              <button className={styles.editBtn} onClick={() => handleEditCard(card)}>
+                                Edit
+                              </button>
+                              <button
+                                className={styles.deleteInlineBtn}
+                                onClick={() => void handleDeleteCard(card)}
+                                disabled={deletingCardId === card.id}
+                              >
+                                {deletingCardId === card.id ? 'Deleting' : 'Delete'}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <div className={styles.placeholder}>
+                    <p>No matching cards found.</p>
+                  </div>
+                )
               ) : (
                 <div className={styles.placeholder}>
                   <p>No cards in inventory yet.</p>
