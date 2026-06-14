@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { readInstagramPublishServiceResponse } from '@/lib/server/instagramPublisher';
 import { authenticateAdminRequest } from '@/lib/server/supabaseAdmin';
 import {
   buildCardImagePath,
@@ -97,6 +98,7 @@ export async function POST(request: NextRequest) {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            Accept: 'application/json',
           },
           body: JSON.stringify({
             imageUrl: publicUrl,
@@ -104,10 +106,7 @@ export async function POST(request: NextRequest) {
           }),
         });
 
-        const result = await publishRes.json();
-        if (!publishRes.ok || result.error) {
-          throw new Error(result.error || 'Instagram publication failed');
-        }
+        const result = await readInstagramPublishServiceResponse(publishRes);
 
         instagram = { success: true, url: result.url };
 

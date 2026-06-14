@@ -11,6 +11,14 @@ export type InstagramPublishResult = {
   url: string;
 };
 
+type PublishServiceJson = {
+  success?: boolean;
+  media_code?: unknown;
+  pk?: unknown;
+  url?: unknown;
+  error?: unknown;
+};
+
 type InstagramPublishWithOutput = InstagramPublishResult & {
   stdout: string;
 };
@@ -35,6 +43,47 @@ export function parseInstagramPublishResult(stdout: string): InstagramPublishRes
   }
 
   return null;
+}
+
+function previewResponseBody(body: string) {
+  return body.replace(/\s+/g, ' ').trim().slice(0, 240);
+}
+
+export async function readInstagramPublishServiceResponse(
+  response: Response,
+): Promise<InstagramPublishResult> {
+  const contentType = response.headers.get('content-type') || 'unknown';
+  const body = await response.text();
+
+  if (!contentType.toLowerCase().includes('application/json')) {
+    throw new Error(
+      `Instagram publish service returned non-JSON response (status ${response.status}, content-type ${contentType}): ${previewResponseBody(body)}`,
+    );
+  }
+
+  let parsed: PublishServiceJson;
+  try {
+    parsed = JSON.parse(body) as PublishServiceJson;
+  } catch {
+    throw new Error(
+      `Instagram publish service returned invalid JSON (status ${response.status}): ${previewResponseBody(body)}`,
+    );
+  }
+
+  if (!response.ok || parsed.error) {
+    throw new Error(String(parsed.error || `Instagram publish service failed with status ${response.status}`));
+  }
+
+  if (!parsed.success || typeof parsed.url !== 'string') {
+    throw new Error('Instagram publish service response did not include a successful post URL.');
+  }
+
+  return {
+    success: true,
+    media_code: String(parsed.media_code ?? ''),
+    pk: String(parsed.pk ?? ''),
+    url: parsed.url,
+  };
 }
 
 function imageExtensionFromContentType(contentType: string | null) {

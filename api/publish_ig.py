@@ -4,7 +4,6 @@ import os
 import urllib.request
 import tempfile
 import sys
-from instagrapi import Client
 
 # Load local .env.local values as fallback for development
 try:
@@ -45,6 +44,12 @@ class handler(BaseHTTPRequestHandler):
             
             if not session_id:
                 self._send_json({'error': 'session_id not configured in environment'}, 500)
+                return
+
+            try:
+                from instagrapi import Client
+            except Exception as import_error:
+                self._send_json({'error': f'Instagram publisher dependency is not available: {import_error}'}, 500)
                 return
             
             # 3. Setup instagrapi client
