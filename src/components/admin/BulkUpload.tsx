@@ -59,7 +59,7 @@ export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
     album_era: '',
   });
 
-  // Single Upload & Sync states
+  // Single Upload states
   const [singleData, setSingleData] = useState({
     title: '',
     price: '',
@@ -67,8 +67,6 @@ export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
     album_era: '',
     pob_name: '',
     inventory_count: '1',
-    syncToIg: false,
-    igCaption: '',
   });
   const [singleFile, setSingleFile] = useState<File | null>(null);
   const [singleFilePreview, setSingleFilePreview] = useState<string>('');
@@ -129,19 +127,7 @@ export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
   };
 
   const handleSingleFieldChange = (field: string, value: string | boolean) => {
-    setSingleData(prev => {
-      const next = { ...prev, [field]: value };
-      
-      // Auto-generate Instagram Caption based on group, album, pob
-      if (['group_name', 'album_era', 'pob_name'].includes(field)) {
-        const parts = [];
-        if (next.group_name.trim()) parts.push(`#${next.group_name.trim()}`);
-        if (next.album_era.trim()) parts.push(next.album_era.trim());
-        if (next.pob_name.trim()) parts.push(next.pob_name.trim());
-        next.igCaption = parts.join(' ');
-      }
-      return next;
-    });
+    setSingleData(prev => ({ ...prev, [field]: value }));
   };
 
   const getAdminAccessToken = async () => {
@@ -194,7 +180,6 @@ export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
           group_name: commonMetadata.group_name,
           album_era: commonMetadata.album_era,
           inventory_count: 1,
-          syncToIg: false,
         }, accessToken);
       }
 
@@ -222,7 +207,7 @@ export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
     setUploading(true);
     try {
       const accessToken = await getAdminAccessToken();
-      const result = await uploadCardToAdminApi(singleFile, {
+      await uploadCardToAdminApi(singleFile, {
         title: singleData.title,
         price: singleData.price,
         group_name: singleData.group_name,
@@ -230,19 +215,9 @@ export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
         pob_name: singleData.pob_name,
         inventory_count: singleData.inventory_count,
         source: 'manual',
-        syncToIg: singleData.syncToIg,
-        igCaption: singleData.igCaption,
       }, accessToken);
 
-      if (singleData.syncToIg) {
-        if (result.instagram?.success === false) {
-          alert(`Card uploaded successfully to website, but Instagram Sync failed: ${result.instagram.error || 'Unknown error'}`);
-        } else {
-          alert('Upload and Instagram Sync successful!');
-        }
-      } else {
-        alert('Upload successful!');
-      }
+      alert('Upload successful!');
 
       // Reset Single Form
       setSingleData({
@@ -252,8 +227,6 @@ export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
         album_era: '',
         pob_name: '',
         inventory_count: '1',
-        syncToIg: false,
-        igCaption: '',
       });
       setSingleFile(null);
       setSingleFilePreview('');
@@ -279,7 +252,7 @@ export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
           className={`${styles.tab} ${activeTab === 'single' ? styles.active : ''}`}
           onClick={() => setActiveTab('single')}
         >
-          Single Upload & Sync
+          Single Upload
         </button>
         <button
           className={`${styles.tab} ${activeTab === 'sync_url' ? styles.active : ''}`}
@@ -358,7 +331,7 @@ export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
         </>
       ) : activeTab === 'single' ? (
         <div className={styles.singleUploadLayout}>
-          <h3>Single Upload & Instagram Sync</h3>
+          <h3>Single Upload</h3>
           
           {singleFilePreview && (
             <div className={styles.previewBox}>
@@ -453,47 +426,13 @@ export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
             </label>
           </div>
 
-          <div className={styles.row}>
-            <div className={`${styles.inputGroup} ${styles.fullWidth}`}>
-              <label className={styles.checkboxLabel}>
-                <input
-                  type="checkbox"
-                  checked={singleData.syncToIg}
-                  onChange={(e) => handleSingleFieldChange('syncToIg', e.target.checked)}
-                />
-                Sync post to Instagram
-              </label>
-            </div>
-          </div>
-
-          {singleData.syncToIg && (
-            <div className={styles.row}>
-              <div className={`${styles.inputGroup} ${styles.fullWidth}`}>
-                <label>Instagram Caption</label>
-                <textarea
-                  rows={4}
-                  value={singleData.igCaption}
-                  onChange={(e) => handleSingleFieldChange('igCaption', e.target.value)}
-                  placeholder="Instagram Caption text..."
-                  style={{
-                    background: 'rgba(255, 255, 255, 0.05)',
-                    border: '1px solid var(--glass-border)',
-                    padding: '0.75rem',
-                    borderRadius: '8px',
-                    color: 'white',
-                    fontFamily: 'inherit',
-                  }}
-                />
-              </div>
-            </div>
-          )}
-
           <button 
             onClick={handleSingleUpload} 
             className={styles.uploadBtn}
             disabled={uploading || !singleFile}
+            style={{ marginTop: '1rem' }}
           >
-            {uploading ? 'Uploading & Syncing...' : 'Upload Card & Sync'}
+            {uploading ? 'Uploading...' : 'Upload Card'}
           </button>
         </div>
       ) : (

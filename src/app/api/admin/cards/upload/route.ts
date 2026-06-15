@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readInstagramPublishServiceResponse } from '@/lib/server/instagramPublisher';
 import { authenticateAdminRequest } from '@/lib/server/supabaseAdmin';
 import {
   buildCardImagePath,
@@ -37,8 +36,6 @@ export async function POST(request: NextRequest) {
         pob_name: formData.get('pob_name'),
         inventory_count: formData.get('inventory_count'),
         source: formData.get('source'),
-        syncToIg: formData.get('syncToIg'),
-        igCaption: formData.get('igCaption'),
       },
       file.name,
     );
@@ -86,51 +83,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: dbError.message }, { status: 500 });
     }
 
-    let instagram:
-      | { success: true; url: string }
-      | { success: false; error: string }
-      | null = null;
-
-    if (cardFields.syncToIg) {
-      try {
-        const origin = request.nextUrl.origin;
-        const publishRes = await fetch(`${origin}/api/publish_ig`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Accept: 'application/json',
-          },
-          body: JSON.stringify({
-            imageUrl: publicUrl,
-            caption: cardFields.igCaption,
-          }),
-        });
-
-        const result = await readInstagramPublishServiceResponse(publishRes);
-
-        instagram = { success: true, url: result.url };
-
-        const { error: updateError } = await auth.supabaseAdmin
-          .from('cards')
-          .update({ original_ig_url: result.url })
-          .eq('id', card.id);
-
-        if (updateError) {
-          console.error('Failed to update card database with IG URL:', updateError.message);
-        } else {
-          card.original_ig_url = result.url;
-        }
-      } catch (error: unknown) {
-        const errMsg = error instanceof Error ? error.message : String(error);
-        instagram = { success: false, error: errMsg };
-      }
-    }
-
     return NextResponse.json({
       success: true,
       card,
       publicUrl,
-      instagram,
     });
   } catch (error: unknown) {
     const errMsg = error instanceof Error ? error.message : String(error);
