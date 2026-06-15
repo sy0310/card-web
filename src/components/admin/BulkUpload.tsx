@@ -15,8 +15,41 @@ type UploadCardResponse = {
 };
 
 export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
-  const [activeTab, setActiveTab] = useState<'bulk' | 'single'>('bulk');
+  const [activeTab, setActiveTab] = useState<'bulk' | 'single' | 'sync_url'>('bulk');
   const [uploading, setUploading] = useState(false);
+  const [igUrl, setIgUrl] = useState('');
+  const [syncingUrl, setSyncingUrl] = useState(false);
+
+  const handleUrlSync = async () => {
+    if (!igUrl.trim()) {
+      alert('Please enter an Instagram post URL.');
+      return;
+    }
+    setSyncingUrl(true);
+    try {
+      const accessToken = await getAdminAccessToken();
+      const res = await fetch('/api/admin/cards/sync-instagram', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ url: igUrl.trim() }),
+      });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok || result.error) {
+        throw new Error(result.error || 'Sync failed.');
+      }
+      alert('Card successfully synced from Instagram!');
+      setIgUrl('');
+      onComplete();
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      alert('Error syncing: ' + errMsg);
+    } finally {
+      setSyncingUrl(false);
+    }
+  };
 
   // Bulk Upload states
   const [files, setFiles] = useState<File[]>([]);
@@ -248,6 +281,12 @@ export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
         >
           Single Upload & Sync
         </button>
+        <button
+          className={`${styles.tab} ${activeTab === 'sync_url' ? styles.active : ''}`}
+          onClick={() => setActiveTab('sync_url')}
+        >
+          Sync from IG URL
+        </button>
       </div>
 
       {activeTab === 'bulk' ? (
@@ -317,7 +356,7 @@ export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
             {uploading ? 'Uploading...' : `Upload ${files.length} Cards`}
           </button>
         </>
-      ) : (
+      ) : activeTab === 'single' ? (
         <div className={styles.singleUploadLayout}>
           <h3>Single Upload & Instagram Sync</h3>
           
@@ -455,6 +494,33 @@ export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
             disabled={uploading || !singleFile}
           >
             {uploading ? 'Uploading & Syncing...' : 'Upload Card & Sync'}
+          </button>
+        </div>
+      ) : (
+        <div className={styles.singleUploadLayout}>
+          <h3>Sync Card from Instagram URL</h3>
+          <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1.5rem' }}>
+            Enter the URL of your Instagram post. The server will download the image and auto-parse the price, group name and album/era from the caption.
+          </p>
+          <div className={styles.row}>
+            <div className={`${styles.inputGroup} ${styles.fullWidth}`}>
+              <label>Instagram Post URL *</label>
+              <input
+                type="url"
+                value={igUrl}
+                onChange={(e) => setIgUrl(e.target.value)}
+                placeholder="https://www.instagram.com/p/..."
+                required
+              />
+            </div>
+          </div>
+          <button 
+            onClick={handleUrlSync} 
+            className={styles.uploadBtn}
+            disabled={syncingUrl || !igUrl}
+            style={{ marginTop: '1.5rem' }}
+          >
+            {syncingUrl ? 'Syncing...' : 'Fetch & Sync Card'}
           </button>
         </div>
       )}

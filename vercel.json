@@ -7,12 +7,20 @@
     {
       "src": "api/publish_ig.py",
       "use": "@vercel/python"
+    },
+    {
+      "src": "api/fetch_ig.py",
+      "use": "@vercel/python"
     }
   ],
   "rewrites": [
     {
       "source": "/api/publish_ig",
       "destination": "/api/publish_ig.py"
+    },
+    {
+      "source": "/api/fetch_ig",
+      "destination": "/api/fetch_ig.py"
     }
   ]
 }

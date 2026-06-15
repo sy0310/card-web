@@ -61,6 +61,18 @@ export default function AdminDashboard() {
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [selectedWishlistIds, setSelectedWishlistIds] = useState<string[]>([]);
   const [updatingWishlists, setUpdatingWishlists] = useState(false);
+  const [showBulkEdit, setShowBulkEdit] = useState(false);
+  const [bulkUpdating, setBulkUpdating] = useState(false);
+  const [bulkEditDraft, setBulkEditDraft] = useState({
+    group_name: '',
+    album_era: '',
+    price: '',
+    inventory_count: '',
+    update_group_name: false,
+    update_album_era: false,
+    update_price: false,
+    update_inventory_count: false,
+  });
   const [statusMessage, setStatusMessage] = useState('');
   const router = useRouter();
   const [searchTerm, setSearchTerm] = useState('');
@@ -419,6 +431,62 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleBulkUpdate = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (selectedIds.length === 0) return;
+
+    const updatePayload: Record<string, any> = {};
+    if (bulkEditDraft.update_group_name) updatePayload.group_name = bulkEditDraft.group_name.trim();
+    if (bulkEditDraft.update_album_era) updatePayload.album_era = bulkEditDraft.album_era.trim();
+    if (bulkEditDraft.update_price) {
+      const parsedPrice = parseFloat(bulkEditDraft.price);
+      updatePayload.price = isNaN(parsedPrice) ? 0 : parsedPrice;
+    }
+    if (bulkEditDraft.update_inventory_count) {
+      const parsedCount = parseInt(bulkEditDraft.inventory_count, 10);
+      updatePayload.inventory_count = isNaN(parsedCount) ? 0 : parsedCount;
+    }
+
+    if (Object.keys(updatePayload).length === 0) {
+      setStatusMessage('Please select at least one field to update.');
+      return;
+    }
+
+    setBulkUpdating(true);
+    setStatusMessage('');
+
+    try {
+      const { error } = await supabase
+        .from('cards')
+        .update(updatePayload)
+        .in('id', selectedIds);
+
+      if (error) {
+        setStatusMessage(`Bulk update failed: ${error.message}`);
+      } else {
+        setStatusMessage(`Successfully updated ${selectedIds.length} cards.`);
+        await fetchCards();
+        setShowBulkEdit(false);
+        setBulkEditDraft({
+          group_name: '',
+          album_era: '',
+          price: '',
+          inventory_count: '',
+          update_group_name: false,
+          update_album_era: false,
+          update_price: false,
+          update_inventory_count: false,
+        });
+        setSelectedIds([]);
+      }
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      setStatusMessage(`Bulk update error: ${errMsg}`);
+    } finally {
+      setBulkUpdating(false);
+    }
+  };
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     router.push('/admin/login');
@@ -434,6 +502,120 @@ export default function AdminDashboard() {
 
   return (
     <div className={styles.dashboard}>
+      {showBulkEdit && (
+        <div className={styles.modalOverlay} onClick={() => setShowBulkEdit(false)}>
+          <form className={styles.editorPanel} onSubmit={handleBulkUpdate} onClick={event => event.stopPropagation()} style={{ maxWidth: '600px' }}>
+            <div className={styles.editorHeader}>
+              <div>
+                <p className={styles.eyebrow}>Batch Actions</p>
+                <h2>Bulk Edit {selectedIds.length} Selected Cards</h2>
+              </div>
+              <button type="button" className={styles.closeBtn} onClick={() => setShowBulkEdit(false)}>
+                Close
+              </button>
+            </div>
+
+            <div className={styles.editorBody} style={{ gridTemplateColumns: '1fr', padding: '1.25rem 0' }}>
+              <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
+                Check the fields you want to update. Unchecked fields will remain unchanged.
+              </p>
+              <div className={styles.formGrid} style={{ gridTemplateColumns: '1fr', gap: '1rem' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  
+                  <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={bulkEditDraft.update_group_name}
+                      onChange={(e) => setBulkEditDraft({ ...bulkEditDraft, update_group_name: e.target.checked })}
+                      style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                    />
+                    <label className={styles.field} style={{ flex: 1 }}>
+                      <span>Group Name</span>
+                      <input
+                        type="text"
+                        value={bulkEditDraft.group_name}
+                        onChange={(e) => setBulkEditDraft({ ...bulkEditDraft, group_name: e.target.value })}
+                        placeholder="e.g. NewJeans"
+                        disabled={!bulkEditDraft.update_group_name}
+                      />
+                    </label>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={bulkEditDraft.update_album_era}
+                      onChange={(e) => setBulkEditDraft({ ...bulkEditDraft, update_album_era: e.target.checked })}
+                      style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                    />
+                    <label className={styles.field} style={{ flex: 1 }}>
+                      <span>Album / Era</span>
+                      <input
+                        type="text"
+                        value={bulkEditDraft.album_era}
+                        onChange={(e) => setBulkEditDraft({ ...bulkEditDraft, album_era: e.target.value })}
+                        placeholder="e.g. Get Up"
+                        disabled={!bulkEditDraft.update_album_era}
+                      />
+                    </label>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={bulkEditDraft.update_price}
+                      onChange={(e) => setBulkEditDraft({ ...bulkEditDraft, update_price: e.target.checked })}
+                      style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                    />
+                    <label className={styles.field} style={{ flex: 1 }}>
+                      <span>Price ($)</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={bulkEditDraft.price}
+                        onChange={(e) => setBulkEditDraft({ ...bulkEditDraft, price: e.target.value })}
+                        placeholder="0.00"
+                        disabled={!bulkEditDraft.update_price}
+                      />
+                    </label>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={bulkEditDraft.update_inventory_count}
+                      onChange={(e) => setBulkEditDraft({ ...bulkEditDraft, update_inventory_count: e.target.checked })}
+                      style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                    />
+                    <label className={styles.field} style={{ flex: 1 }}>
+                      <span>Inventory Count</span>
+                      <input
+                        type="number"
+                        min="0"
+                        value={bulkEditDraft.inventory_count}
+                        onChange={(e) => setBulkEditDraft({ ...bulkEditDraft, inventory_count: e.target.value })}
+                        placeholder="1"
+                        disabled={!bulkEditDraft.update_inventory_count}
+                      />
+                    </label>
+                  </div>
+
+                </div>
+              </div>
+            </div>
+
+            <div className={styles.editorFooter}>
+              <button type="button" className={styles.secondaryBtn} onClick={() => setShowBulkEdit(false)}>
+                Cancel
+              </button>
+              <button type="submit" className={styles.addBtn} disabled={bulkUpdating}>
+                {bulkUpdating ? 'Updating...' : 'Save Bulk Changes'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
       {showUpload && (
         <div className={styles.modalOverlay} onClick={() => setShowUpload(false)}>
           <div className={styles.modalContent} onClick={event => event.stopPropagation()}>
@@ -652,13 +834,22 @@ export default function AdminDashboard() {
               </div>
               <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
                 {selectedIds.length > 0 && (
-                  <button
-                    className={styles.dangerBtn}
-                    onClick={() => void handleDeleteSelected()}
-                    disabled={bulkDeleting}
-                  >
-                    {bulkDeleting ? 'Deleting...' : `批量删除 (${selectedIds.length})`}
-                  </button>
+                  <>
+                    <button
+                      className={styles.secondaryBtn}
+                      onClick={() => setShowBulkEdit(true)}
+                      style={{ background: 'rgba(125, 83, 222, 0.08)', borderColor: 'var(--primary)', color: 'var(--primary)' }}
+                    >
+                      批量修改 ({selectedIds.length})
+                    </button>
+                    <button
+                      className={styles.dangerBtn}
+                      onClick={() => void handleDeleteSelected()}
+                      disabled={bulkDeleting}
+                    >
+                      {bulkDeleting ? 'Deleting...' : `批量删除 (${selectedIds.length})`}
+                    </button>
+                  </>
                 )}
                 <button className={styles.addBtn} onClick={() => setShowUpload(true)}>Add new cards</button>
               </div>
