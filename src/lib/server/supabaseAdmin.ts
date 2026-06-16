@@ -1,17 +1,37 @@
+import 'server-only';
+
 import { createClient } from '@supabase/supabase-js';
+import { getSupabaseServiceRoleKeyError } from './supabaseAdminConfig';
+
+export { formatSupabaseAdminWriteError } from './supabaseAdminConfig';
+
+function trimEnvValue(value: string | undefined) {
+  return value?.trim() ?? '';
+}
 
 export function createSupabaseAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseUrl = trimEnvValue(process.env.NEXT_PUBLIC_SUPABASE_URL);
+  const serviceRoleKey = trimEnvValue(process.env.SUPABASE_SERVICE_ROLE_KEY);
 
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error('Supabase admin credentials are not configured.');
+  if (!supabaseUrl) {
+    throw new Error('NEXT_PUBLIC_SUPABASE_URL is not configured.');
+  }
+
+  const serviceRoleKeyError = getSupabaseServiceRoleKeyError(serviceRoleKey);
+  if (serviceRoleKeyError) {
+    throw new Error(serviceRoleKeyError);
   }
 
   return createClient(supabaseUrl, serviceRoleKey, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,
+    },
+    global: {
+      headers: {
+        apikey: serviceRoleKey,
+        Authorization: `Bearer ${serviceRoleKey}`,
+      },
     },
   });
 }

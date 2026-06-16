@@ -18,6 +18,11 @@ CREATE TABLE IF NOT EXISTS cards (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Card images storage bucket
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('cards', 'cards', true)
+ON CONFLICT (id) DO UPDATE SET public = EXCLUDED.public;
+
 -- 2. Categories Table (Optional, can be used for dynamic filters)
 CREATE TABLE IF NOT EXISTS categories (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -84,3 +89,68 @@ CREATE POLICY "Public Read Settings" ON site_settings FOR SELECT USING (true);
 -- Public can insert wishlists (for checkout)
 CREATE POLICY "Public Insert Wishlists" ON wishlists FOR INSERT WITH CHECK (true);
 CREATE POLICY "Public Insert Wishlist Items" ON wishlist_items FOR INSERT WITH CHECK (true);
+
+-- Storage policies for card images
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'storage'
+          AND tablename = 'objects'
+          AND policyname = 'Public Read Card Images'
+    ) THEN
+        CREATE POLICY "Public Read Card Images"
+        ON storage.objects
+        FOR SELECT
+        USING (bucket_id = 'cards');
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'storage'
+          AND tablename = 'objects'
+          AND policyname = 'Authenticated Upload Card Images'
+    ) THEN
+        CREATE POLICY "Authenticated Upload Card Images"
+        ON storage.objects
+        FOR INSERT
+        TO authenticated
+        WITH CHECK (bucket_id = 'cards');
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'storage'
+          AND tablename = 'objects'
+          AND policyname = 'Authenticated Update Card Images'
+    ) THEN
+        CREATE POLICY "Authenticated Update Card Images"
+        ON storage.objects
+        FOR UPDATE
+        TO authenticated
+        USING (bucket_id = 'cards')
+        WITH CHECK (bucket_id = 'cards');
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'storage'
+          AND tablename = 'objects'
+          AND policyname = 'Authenticated Delete Card Images'
+    ) THEN
+        CREATE POLICY "Authenticated Delete Card Images"
+        ON storage.objects
+        FOR DELETE
+        TO authenticated
+        USING (bucket_id = 'cards');
+    END IF;
+END $$;

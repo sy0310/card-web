@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { authenticateAdminRequest } from '@/lib/server/supabaseAdmin';
+import {
+  authenticateAdminRequest,
+  formatSupabaseAdminWriteError,
+} from '@/lib/server/supabaseAdmin';
 import {
   buildCardImagePath,
   normalizeCardUploadFields,
@@ -53,10 +56,13 @@ export async function POST(request: NextRequest) {
       .upload(filePath, imageBuffer, {
         contentType: file.type || 'image/jpeg',
         upsert: false,
-      });
+    });
 
     if (uploadError) {
-      return NextResponse.json({ error: uploadError.message }, { status: 500 });
+      return NextResponse.json(
+        { error: formatSupabaseAdminWriteError(uploadError) },
+        { status: 500 },
+      );
     }
 
     const { data: { publicUrl } } = auth.supabaseAdmin.storage
@@ -80,7 +86,10 @@ export async function POST(request: NextRequest) {
 
     if (dbError) {
       await auth.supabaseAdmin.storage.from('cards').remove([filePath]);
-      return NextResponse.json({ error: dbError.message }, { status: 500 });
+      return NextResponse.json(
+        { error: formatSupabaseAdminWriteError(dbError) },
+        { status: 500 },
+      );
     }
 
     return NextResponse.json({

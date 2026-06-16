@@ -444,7 +444,10 @@ export default function AdminDashboard() {
     e.preventDefault();
     if (selectedIds.length === 0) return;
 
-    const updatePayload: Record<string, any> = {};
+    const updatePayload: Partial<Pick<
+      CardUpdatePayload,
+      'group_name' | 'album_era' | 'price' | 'inventory_count'
+    >> = {};
     if (bulkEditDraft.update_group_name) updatePayload.group_name = bulkEditDraft.group_name.trim();
     if (bulkEditDraft.update_album_era) updatePayload.album_era = bulkEditDraft.album_era.trim();
     if (bulkEditDraft.update_price) {

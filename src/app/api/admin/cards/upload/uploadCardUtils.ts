@@ -6,6 +6,8 @@ export type NormalizedCardUploadFields = {
   pob_name: string;
   inventory_count: number;
   source: string;
+  syncToIg: boolean;
+  igCaption: string;
 };
 
 type NormalizeResult =
@@ -73,7 +75,11 @@ export function normalizeCardUploadFields(
     return { ok: false, error: 'Title is required.' };
   }
 
-
+  const syncToIg = parseBoolean(fields.syncToIg);
+  const igCaption = trimValue(fields.igCaption);
+  if (syncToIg && !igCaption) {
+    return { ok: false, error: 'Instagram caption is required when sync is enabled.' };
+  }
 
   return {
     ok: true,
@@ -85,6 +91,8 @@ export function normalizeCardUploadFields(
       pob_name: trimValue(fields.pob_name),
       inventory_count: parseInventoryCount(trimValue(fields.inventory_count)),
       source: trimValue(fields.source) || 'manual',
+      syncToIg,
+      igCaption,
     },
   };
 }
