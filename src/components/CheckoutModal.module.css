@@ -20,6 +20,9 @@
   border-radius: 24px;
   position: relative;
   text-align: center;
+  background: rgba(246, 243, 248, 0.95);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
 }
 
 .closeBtn {

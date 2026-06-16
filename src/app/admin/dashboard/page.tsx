@@ -253,19 +253,28 @@ export default function AdminDashboard() {
     try {
       let finalImageUrl = cardDraft.image_url;
       if (selectedImageFile) {
-        const fileExt = selectedImageFile.name.split('.').pop();
-        const fileName = `${Math.random()}.${fileExt}`;
-        const filePath = `card-images/${fileName}`;
-        const { error: uploadError } = await supabase.storage
-          .from('cards')
-          .upload(filePath, selectedImageFile);
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          throw new Error('Please sign in again before uploading.');
+        }
 
-        if (uploadError) throw uploadError;
+        const formData = new FormData();
+        formData.append('file', selectedImageFile);
 
-        const { data: { publicUrl } } = supabase.storage
-          .from('cards')
-          .getPublicUrl(filePath);
-        finalImageUrl = publicUrl;
+        const uploadRes = await fetch('/api/admin/cards/upload-image', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: formData,
+        });
+
+        const uploadResult = await uploadRes.json().catch(() => ({}));
+        if (!uploadRes.ok || uploadResult.error) {
+          throw new Error(uploadResult.error || 'Failed to upload image to server.');
+        }
+
+        finalImageUrl = uploadResult.publicUrl;
       }
 
       const payload = {
