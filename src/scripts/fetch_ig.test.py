@@ -79,6 +79,12 @@ class SessionFallbackClient(BaseFakeClient):
         return FakeMedia()
 
 
+class BadCodeClient(BaseFakeClient):
+    def media_pk_from_code(self, code):
+        self.calls.append(("media_pk_from_code", code))
+        raise ValueError("bad shortcode")
+
+
 class FetchInstagramMediaTest(unittest.TestCase):
     def setUp(self):
         self.module = load_fetch_ig_module()
@@ -122,6 +128,31 @@ class FetchInstagramMediaTest(unittest.TestCase):
             client.calls[-1],
             ("media_info", "123456789", False),
         )
+
+    def test_client_startup_errors_return_diagnostic_code(self):
+        def broken_client_factory():
+            raise ImportError("No module named instagrapi")
+
+        with self.assertRaises(self.module.InstagramSyncError) as ctx:
+            self.module.fetch_instagram_media(
+                "ABC123_def",
+                client_factory=broken_client_factory,
+            )
+
+        self.assertEqual(ctx.exception.code, "instagram_client_start_failed")
+        self.assertIn("ImportError", ctx.exception.detail)
+        self.assertIn("instagrapi", ctx.exception.to_payload()["detail"])
+
+    def test_shortcode_decode_errors_are_not_reported_as_unexpected(self):
+        with self.assertRaises(self.module.InstagramSyncError) as ctx:
+            self.module.fetch_instagram_media(
+                "ABC123_def",
+                client_factory=BadCodeClient,
+            )
+
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertEqual(ctx.exception.code, "invalid_media_code")
+        self.assertIn("bad shortcode", ctx.exception.detail)
 
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@ import styles from './BulkUpload.module.css';
 type UploadCardResponse = {
   success?: boolean;
   error?: string;
+  detail?: string;
   instagram?: {
     success: boolean;
     url?: string;
@@ -50,7 +51,8 @@ export default function BulkUpload({ accessToken, onComplete }: BulkUploadProps)
         body: JSON.stringify({ url: igUrl.trim() }),
       });
       if (!res.ok || result.error) {
-        throw new Error(result.error || 'Sync failed.');
+        const detail = result.detail ? ` (${result.detail})` : '';
+        throw new Error(`${result.error || 'Sync failed.'}${detail}`);
       }
       alert('Card successfully synced from Instagram!');
       setIgUrl('');

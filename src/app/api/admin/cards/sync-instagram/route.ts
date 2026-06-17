@@ -205,6 +205,7 @@ export async function POST(request: NextRequest) {
       error?: string;
       code?: string;
       retryable?: boolean;
+      detail?: string;
     };
     try {
       fetchResult = JSON.parse(bodyText);
@@ -220,6 +221,7 @@ export async function POST(request: NextRequest) {
         error: fetchResult.error || 'Failed to fetch post details from Instagram.',
         code: fetchResult.code,
         retryable: fetchResult.retryable,
+        detail: fetchResult.detail,
       }, { status });
     }
 

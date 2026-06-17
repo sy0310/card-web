@@ -27,18 +27,22 @@ SESSION_USER_ID_RE = re.compile(r"^\d+")
 
 
 class InstagramSyncError(Exception):
-    def __init__(self, message, status_code=500, code="instagram_sync_failed", retryable=False):
+    def __init__(self, message, status_code=500, code="instagram_sync_failed", retryable=False, detail=None):
         super().__init__(message)
         self.status_code = status_code
         self.code = code
         self.retryable = retryable
+        self.detail = detail
 
     def to_payload(self):
-        return {
+        payload = {
             "error": str(self),
             "code": self.code,
             "retryable": self.retryable,
         }
+        if self.detail:
+            payload["detail"] = self.detail
+        return payload
 
 
 def _new_client():
@@ -119,11 +123,43 @@ def fetch_instagram_media(media_code, session_id=None, proxy=None, client_factor
     if not media_code or not MEDIA_CODE_RE.match(media_code):
         raise InstagramSyncError("Invalid Instagram media code.", status_code=400, code="invalid_media_code")
 
-    client = client_factory()
-    if proxy:
-        client.set_proxy(proxy)
+    try:
+        client = client_factory()
+    except Exception as exc:
+        detail = _summarize_exception(exc)
+        print(f"Instagram client startup failed: {detail}\n{traceback.format_exc()}", file=sys.stderr)
+        raise InstagramSyncError(
+            "Instagram sync client failed to start.",
+            status_code=500,
+            code="instagram_client_start_failed",
+            detail=detail,
+        )
 
-    media_pk = client.media_pk_from_code(media_code)
+    if proxy:
+        try:
+            client.set_proxy(proxy)
+        except Exception as exc:
+            detail = _summarize_exception(exc)
+            print(f"Instagram proxy setup failed: {detail}", file=sys.stderr)
+            raise InstagramSyncError(
+                "Configured Instagram proxy is invalid.",
+                status_code=500,
+                code="instagram_proxy_invalid",
+                detail=detail,
+            )
+
+    try:
+        media_pk = client.media_pk_from_code(media_code)
+    except Exception as exc:
+        detail = _summarize_exception(exc)
+        print(f"Instagram shortcode decode failed: {detail}", file=sys.stderr)
+        raise InstagramSyncError(
+            "Invalid Instagram shortcode. Please paste the original Instagram post/reel URL.",
+            status_code=400,
+            code="invalid_media_code",
+            detail=detail,
+        )
+
     failures = []
 
     for fetch_media in (client.media_info_gql, client.media_info_a1):
@@ -150,6 +186,7 @@ def fetch_instagram_media(media_code, session_id=None, proxy=None, client_factor
             status_code=502,
             code="instagram_lookup_blocked",
             retryable=True,
+            detail=" | ".join(failures),
         )
 
 
@@ -176,11 +213,13 @@ class handler(BaseHTTPRequestHandler):
         except InstagramSyncError as e:
             self._send_json(e.to_payload(), e.status_code)
         except Exception as e:
-            print(f"Unexpected Instagram sync error: {e}\n{traceback.format_exc()}", file=sys.stderr)
+            detail = _summarize_exception(e)
+            print(f"Unexpected Instagram sync error: {detail}\n{traceback.format_exc()}", file=sys.stderr)
             self._send_json(
                 {
-                    'error': 'Instagram sync failed unexpectedly. Check server logs for details.',
+                    'error': f'Instagram sync failed unexpectedly: {detail}',
                     'code': 'instagram_sync_unexpected_error',
+                    'detail': detail,
                 },
                 500,
             )
