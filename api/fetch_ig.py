@@ -48,8 +48,22 @@ class InstagramSyncError(Exception):
 def _new_client():
     from instagrapi import Client
 
+    client = Client()
     request_delay = _float_env("IG_REQUEST_DELAY_SECONDS", 1.0)
-    return Client(request_timeout=request_delay, public_request_retries_count=1)
+    _configure_instagram_client(client, request_delay)
+    return client
+
+
+def _configure_instagram_client(client, request_delay):
+    try:
+        client.set_retry_config(request_timeout=request_delay, public_request_retries_count=1)
+        return
+    except (AttributeError, TypeError):
+        pass
+
+    client.request_timeout = request_delay
+    if hasattr(client, "public_request_retries_count"):
+        client.public_request_retries_count = 1
 
 
 def _float_env(key, default):

@@ -85,6 +85,15 @@ class BadCodeClient(BaseFakeClient):
         raise ValueError("bad shortcode")
 
 
+class LegacyRetryClient:
+    def __init__(self):
+        self.request_timeout = None
+        self.public_request_retries_count = 3
+
+    def set_retry_config(self, **_kwargs):
+        raise TypeError("unexpected keyword argument")
+
+
 class FetchInstagramMediaTest(unittest.TestCase):
     def setUp(self):
         self.module = load_fetch_ig_module()
@@ -153,6 +162,14 @@ class FetchInstagramMediaTest(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 400)
         self.assertEqual(ctx.exception.code, "invalid_media_code")
         self.assertIn("bad shortcode", ctx.exception.detail)
+
+    def test_client_retry_configuration_supports_legacy_instagrapi(self):
+        client = LegacyRetryClient()
+
+        self.module._configure_instagram_client(client, 1.5)
+
+        self.assertEqual(client.request_timeout, 1.5)
+        self.assertEqual(client.public_request_retries_count, 1)
 
 
 if __name__ == "__main__":
