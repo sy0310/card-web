@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { supabase } from '@/lib/supabase';
+import { fetchJsonWithRetry, formatAdminFetchError } from '@/lib/client/adminFetch';
 import styles from './BulkUpload.module.css';
 
 type UploadCardResponse = {
@@ -20,7 +20,12 @@ function formatSyncErrorMessage(message: string) {
   return cleanMessage.length > 500 ? `${cleanMessage.slice(0, 497)}...` : cleanMessage;
 }
 
-export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
+type BulkUploadProps = {
+  accessToken: string;
+  onComplete: () => void;
+};
+
+export default function BulkUpload({ accessToken, onComplete }: BulkUploadProps) {
   const [activeTab, setActiveTab] = useState<'bulk' | 'single' | 'sync_url'>('bulk');
   const [uploading, setUploading] = useState(false);
   const [igUrl, setIgUrl] = useState('');
@@ -33,8 +38,10 @@ export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
     }
     setSyncingUrl(true);
     try {
-      const accessToken = await getAdminAccessToken();
-      const res = await fetch('/api/admin/cards/sync-instagram', {
+      if (!accessToken) {
+        throw new Error('Please sign in again before syncing.');
+      }
+      const { response: res, data: result } = await fetchJsonWithRetry<UploadCardResponse>('/api/admin/cards/sync-instagram', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -42,7 +49,6 @@ export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
         },
         body: JSON.stringify({ url: igUrl.trim() }),
       });
-      const result = await res.json().catch(() => ({}));
       if (!res.ok || result.error) {
         throw new Error(result.error || 'Sync failed.');
       }
@@ -50,7 +56,7 @@ export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
       setIgUrl('');
       onComplete();
     } catch (error: unknown) {
-      const errMsg = error instanceof Error ? error.message : String(error);
+      const errMsg = formatAdminFetchError(error, 'Instagram URL sync');
       alert('Error syncing: ' + formatSyncErrorMessage(errMsg));
     } finally {
       setSyncingUrl(false);
@@ -136,19 +142,14 @@ export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
     setSingleData(prev => ({ ...prev, [field]: value }));
   };
 
-  const getAdminAccessToken = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) {
-      throw new Error('Please sign in again before uploading.');
-    }
-    return session.access_token;
-  };
-
   const uploadCardToAdminApi = async (
     file: File,
     fields: Record<string, string | boolean | number>,
-    accessToken: string,
   ) => {
+    if (!accessToken) {
+      throw new Error('Please sign in again before uploading.');
+    }
+
     const formData = new FormData();
     formData.append('file', file);
 
@@ -156,7 +157,7 @@ export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
       formData.append(key, String(value));
     });
 
-    const res = await fetch('/api/admin/cards/upload', {
+    const { response: res, data: result } = await fetchJsonWithRetry<UploadCardResponse>('/api/admin/cards/upload', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -164,7 +165,6 @@ export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
       body: formData,
     });
 
-    const result = await res.json().catch(() => ({})) as UploadCardResponse;
     if (!res.ok || result.error) {
       throw new Error(result.error || 'Upload failed.');
     }
@@ -177,8 +177,6 @@ export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
     setUploading(true);
 
     try {
-      const accessToken = await getAdminAccessToken();
-
       for (const file of files) {
         await uploadCardToAdminApi(file, {
           title: file.name.replace(/\.[^/.]+$/, ""), // Use filename as title
@@ -186,14 +184,14 @@ export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
           group_name: commonMetadata.group_name,
           album_era: commonMetadata.album_era,
           inventory_count: 1,
-        }, accessToken);
+        });
       }
 
       setFiles([]);
       onComplete();
       alert('Upload successful!');
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
+      const message = formatAdminFetchError(error, 'Bulk upload');
       alert('Error uploading: ' + message);
     } finally {
       setUploading(false);
@@ -212,7 +210,6 @@ export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
 
     setUploading(true);
     try {
-      const accessToken = await getAdminAccessToken();
       await uploadCardToAdminApi(singleFile, {
         title: singleData.title,
         price: singleData.price,
@@ -221,7 +218,7 @@ export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
         pob_name: singleData.pob_name,
         inventory_count: singleData.inventory_count,
         source: 'manual',
-      }, accessToken);
+      });
 
       alert('Upload successful!');
 
@@ -238,7 +235,7 @@ export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
       setSingleFilePreview('');
       onComplete();
     } catch (error: unknown) {
-      const errMsg = error instanceof Error ? error.message : String(error);
+      const errMsg = formatAdminFetchError(error, 'Single upload');
       alert('Error uploading: ' + errMsg);
     } finally {
       setUploading(false);

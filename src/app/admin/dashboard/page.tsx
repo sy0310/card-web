@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import type { Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import BulkUpload from '@/components/admin/BulkUpload';
+import { fetchJsonWithRetry, formatAdminFetchError } from '@/lib/client/adminFetch';
 import styles from './page.module.css';
 import {
   type AdminSettings,
@@ -31,6 +33,12 @@ type CardSaveResponse = {
   error?: string;
 };
 
+type ImageUploadResponse = {
+  success?: boolean;
+  publicUrl?: string;
+  error?: string;
+};
+
 type WishlistItem = {
   card_id: string;
   cards?: {
@@ -49,7 +57,7 @@ type Wishlist = {
 };
 
 export default function AdminDashboard() {
-  const [session, setSession] = useState<unknown>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [showUpload, setShowUpload] = useState(false);
   const [cards, setCards] = useState<AdminCard[]>([]);
   const [wishlists, setWishlists] = useState<Wishlist[]>([]);
@@ -172,11 +180,11 @@ export default function AdminDashboard() {
   }, [fetchCards, fetchSettings, fetchWishlists]);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) {
+    supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
+      if (!currentSession) {
         router.push('/admin/login');
       } else {
-        setSession(session);
+        setSession(currentSession);
         void fetchData();
       }
     });
@@ -257,7 +265,6 @@ export default function AdminDashboard() {
     setStatusMessage('');
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) {
         throw new Error('Please sign in again before saving.');
       }
@@ -267,7 +274,7 @@ export default function AdminDashboard() {
         const formData = new FormData();
         formData.append('file', selectedImageFile);
 
-        const uploadRes = await fetch('/api/admin/cards/upload-image', {
+        const { response: uploadRes, data: uploadResult } = await fetchJsonWithRetry<ImageUploadResponse>('/api/admin/cards/upload-image', {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${session.access_token}`,
@@ -275,9 +282,11 @@ export default function AdminDashboard() {
           body: formData,
         });
 
-        const uploadResult = await uploadRes.json().catch(() => ({}));
         if (!uploadRes.ok || uploadResult.error) {
           throw new Error(uploadResult.error || 'Failed to upload image to server.');
+        }
+        if (!uploadResult.publicUrl) {
+          throw new Error('Image upload did not return a public URL.');
         }
 
         finalImageUrl = uploadResult.publicUrl;
@@ -288,7 +297,7 @@ export default function AdminDashboard() {
         image_url: finalImageUrl,
       };
 
-      const saveRes = await fetch(`/api/admin/cards/${encodeURIComponent(editingCard.id)}`, {
+      const { response: saveRes, data: saveResult } = await fetchJsonWithRetry<CardSaveResponse>(`/api/admin/cards/${encodeURIComponent(editingCard.id)}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -296,8 +305,6 @@ export default function AdminDashboard() {
         },
         body: JSON.stringify(payload),
       });
-
-      const saveResult: CardSaveResponse = await saveRes.json().catch(() => ({}));
 
       if (!saveRes.ok || saveResult.error) {
         setStatusMessage(`Error saving card: ${saveResult.error || `Request failed with status ${saveRes.status}`}`);
@@ -308,7 +315,7 @@ export default function AdminDashboard() {
         closeCardEditor();
       }
     } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : String(err);
+      const errMsg = formatAdminFetchError(err, 'Saving card');
       setStatusMessage(`Error saving card: ${errMsg}`);
     } finally {
       setSavingCard(false);
@@ -647,7 +654,7 @@ export default function AdminDashboard() {
             <BulkUpload onComplete={() => {
               setShowUpload(false);
               void fetchCards();
-            }} />
+            }} accessToken={session.access_token} />
           </div>
         </div>
       )}

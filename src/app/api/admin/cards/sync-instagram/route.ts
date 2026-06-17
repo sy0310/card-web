@@ -4,6 +4,7 @@ import {
   formatSupabaseAdminWriteError,
 } from '@/lib/server/supabaseAdmin';
 import { buildCardImagePath } from '../upload/uploadCardUtils';
+import { parseInstagramMediaInput } from './syncInstagramUtils';
 
 export const runtime = 'nodejs';
 
@@ -160,20 +161,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Instagram URL is required.' }, { status: 400 });
     }
 
-    // Parse media code from URL: instagram.com/p/CODE/ or /p/CODE
-    const match = url.match(/\/p\/([A-Za-z0-9_-]+)/);
-    if (!match) {
-      return NextResponse.json({ error: 'Invalid Instagram post URL. Must contain /p/CODE/' }, { status: 400 });
+    const mediaRef = parseInstagramMediaInput(url);
+    if (!mediaRef) {
+      return NextResponse.json(
+        { error: 'Invalid Instagram URL. Paste a /p/, /reel/, /tv/ link, or a shortcode.' },
+        { status: 400 },
+      );
     }
 
-    const mediaCode = match[1];
-    const standardIgUrl = `https://www.instagram.com/p/${mediaCode}/`;
+    const { mediaCode } = mediaRef;
+    const standardIgUrl = mediaRef.originalUrl;
 
     // Check if duplicate
     const { data: existing, error: queryError } = await auth.supabaseAdmin
       .from('cards')
       .select('id')
-      .eq('original_ig_url', standardIgUrl)
+      .in('original_ig_url', mediaRef.duplicateUrls)
       .maybeSingle();
 
     if (queryError) {
