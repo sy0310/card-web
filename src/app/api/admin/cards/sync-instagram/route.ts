@@ -195,7 +195,14 @@ export async function POST(request: NextRequest) {
     });
 
     const bodyText = await fetchRes.text();
-    let fetchResult: { success?: boolean; caption?: string; imageUrl?: string; error?: string };
+    let fetchResult: {
+      success?: boolean;
+      caption?: string;
+      imageUrl?: string;
+      error?: string;
+      code?: string;
+      retryable?: boolean;
+    };
     try {
       fetchResult = JSON.parse(bodyText);
     } catch {
@@ -205,9 +212,12 @@ export async function POST(request: NextRequest) {
     }
 
     if (!fetchRes.ok || fetchResult.error || !fetchResult.imageUrl) {
-      return NextResponse.json({ 
-        error: fetchResult.error || 'Failed to fetch post details from Instagram.' 
-      }, { status: 500 });
+      const status = fetchRes.status >= 400 && fetchRes.status < 600 ? fetchRes.status : 500;
+      return NextResponse.json({
+        error: fetchResult.error || 'Failed to fetch post details from Instagram.',
+        code: fetchResult.code,
+        retryable: fetchResult.retryable,
+      }, { status });
     }
 
     const { caption, imageUrl } = fetchResult;

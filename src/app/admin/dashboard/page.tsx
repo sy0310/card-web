@@ -25,6 +25,12 @@ type AdminCard = CardUpdatePayload & {
   created_at?: string;
 };
 
+type CardSaveResponse = {
+  success?: boolean;
+  card?: AdminCard;
+  error?: string;
+};
+
 type WishlistItem = {
   card_id: string;
   cards?: {
@@ -251,13 +257,13 @@ export default function AdminDashboard() {
     setStatusMessage('');
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        throw new Error('Please sign in again before saving.');
+      }
+
       let finalImageUrl = cardDraft.image_url;
       if (selectedImageFile) {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.access_token) {
-          throw new Error('Please sign in again before uploading.');
-        }
-
         const formData = new FormData();
         formData.append('file', selectedImageFile);
 
@@ -282,21 +288,28 @@ export default function AdminDashboard() {
         image_url: finalImageUrl,
       };
 
-      const { error } = await supabase
-        .from('cards')
-        .update(payload)
-        .eq('id', editingCard.id);
+      const saveRes = await fetch(`/api/admin/cards/${encodeURIComponent(editingCard.id)}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify(payload),
+      });
 
-      if (error) {
-        setStatusMessage(`Error saving card: ${error.message}`);
+      const saveResult: CardSaveResponse = await saveRes.json().catch(() => ({}));
+
+      if (!saveRes.ok || saveResult.error) {
+        setStatusMessage(`Error saving card: ${saveResult.error || `Request failed with status ${saveRes.status}`}`);
       } else {
-        setCards(current => applyCardPatch(current, editingCard.id, payload));
+        const savedCard = saveResult.card ?? { ...editingCard, ...payload };
+        setCards(current => applyCardPatch(current, editingCard.id, savedCard));
         setStatusMessage('Card updated.');
         closeCardEditor();
       }
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      setStatusMessage(`Error saving card image: ${errMsg}`);
+      setStatusMessage(`Error saving card: ${errMsg}`);
     } finally {
       setSavingCard(false);
     }

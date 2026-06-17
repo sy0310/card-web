@@ -1,9 +1,9 @@
 from http.server import BaseHTTPRequestHandler
 import json
 import os
+import re
 import sys
 import traceback
-from instagrapi import Client
 
 # Load local .env.local values as fallback for development
 try:
@@ -22,6 +22,137 @@ except Exception as e:
     # Fail silently, e.g. when running in Vercel production
     pass
 
+MEDIA_CODE_RE = re.compile(r"^[A-Za-z0-9_-]{5,}$")
+SESSION_USER_ID_RE = re.compile(r"^\d+")
+
+
+class InstagramSyncError(Exception):
+    def __init__(self, message, status_code=500, code="instagram_sync_failed", retryable=False):
+        super().__init__(message)
+        self.status_code = status_code
+        self.code = code
+        self.retryable = retryable
+
+    def to_payload(self):
+        return {
+            "error": str(self),
+            "code": self.code,
+            "retryable": self.retryable,
+        }
+
+
+def _new_client():
+    from instagrapi import Client
+
+    request_delay = _float_env("IG_REQUEST_DELAY_SECONDS", 1.0)
+    return Client(request_timeout=request_delay, public_request_retries_count=1)
+
+
+def _float_env(key, default):
+    value = os.environ.get(key)
+    if not value:
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        return default
+
+
+def _summarize_exception(exc):
+    message = str(exc).strip().replace("\n", " ")
+    message = re.sub(r"https://www\.instagram\.com/graphql/query/\?\S+", "Instagram GraphQL endpoint", message)
+    message = re.sub(r"https://i\.instagram\.com/api/v1/\S+", "Instagram private API endpoint", message)
+    if len(message) > 240:
+        message = message[:237] + "..."
+    return f"{exc.__class__.__name__}: {message}" if message else exc.__class__.__name__
+
+
+def _attach_session_without_validation(client, session_id):
+    user_match = SESSION_USER_ID_RE.search(session_id or "")
+    if not user_match:
+        raise InstagramSyncError(
+            "Configured Instagram session_id is malformed. Refresh it from the logged-in Instagram account.",
+            status_code=500,
+            code="invalid_instagram_session",
+        )
+
+    user_id = user_match.group()
+    client.settings["cookies"] = {"sessionid": session_id}
+    client.init()
+    client.authorization_data = {
+        "ds_user_id": user_id,
+        "sessionid": session_id,
+        "should_use_header_over_cookies": True,
+    }
+    client.private.cookies.set("ds_user_id", user_id)
+    client.public.cookies.set("sessionid", session_id)
+    client.public.cookies.set("ds_user_id", user_id)
+
+
+def _first_image_url(media):
+    if getattr(media, "media_type", None) == 8 and getattr(media, "resources", None):
+        image_url = getattr(media.resources[0], "thumbnail_url", None)
+        if image_url:
+            return str(image_url)
+    image_url = getattr(media, "thumbnail_url", None)
+    return str(image_url) if image_url else None
+
+
+def _media_payload(media):
+    image_url = _first_image_url(media)
+    if not image_url:
+        raise InstagramSyncError(
+            "No valid image URL found on the Instagram post.",
+            status_code=502,
+            code="instagram_image_missing",
+            retryable=True,
+        )
+
+    return {
+        "success": True,
+        "caption": getattr(media, "caption_text", None) or "",
+        "imageUrl": image_url,
+    }
+
+
+def fetch_instagram_media(media_code, session_id=None, proxy=None, client_factory=_new_client):
+    if not media_code or not MEDIA_CODE_RE.match(media_code):
+        raise InstagramSyncError("Invalid Instagram media code.", status_code=400, code="invalid_media_code")
+
+    client = client_factory()
+    if proxy:
+        client.set_proxy(proxy)
+
+    media_pk = client.media_pk_from_code(media_code)
+    failures = []
+
+    for fetch_media in (client.media_info_gql, client.media_info_a1):
+        try:
+            return _media_payload(fetch_media(media_pk))
+        except Exception as exc:
+            failures.append(_summarize_exception(exc))
+
+    if not session_id:
+        raise InstagramSyncError(
+            "Instagram public post lookup was blocked and session_id is not configured.",
+            status_code=500,
+            code="instagram_session_missing",
+        )
+
+    _attach_session_without_validation(client, session_id)
+    try:
+        return _media_payload(client.media_info(media_pk, use_cache=False))
+    except Exception as exc:
+        failures.append(_summarize_exception(exc))
+        print("Instagram sync attempts failed: " + " | ".join(failures), file=sys.stderr)
+        raise InstagramSyncError(
+            "Instagram refused the post lookup. Refresh the Instagram session_id and check that the configured proxy can access Instagram.",
+            status_code=502,
+            code="instagram_lookup_blocked",
+            retryable=True,
+        )
+
+
 class handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
@@ -36,51 +167,23 @@ class handler(BaseHTTPRequestHandler):
                 return
             
             # 2. Get credentials from environment
-            session_id = os.environ.get('session_id')
-            proxy = os.environ.get('proxy')
-            
-            if not session_id:
-                self._send_json({'error': 'session_id not configured in environment'}, 500)
-                return
-            
-            # 3. Setup instagrapi client
-            cl = Client()
-            cl.request_timeout = 20
-            
-            if proxy:
-                cl.set_proxy(proxy)
-            
-            # 4. Login
-            cl.login_by_sessionid(session_id)
-            
-            # 5. Fetch media info
-            media_pk = cl.media_pk_from_code(media_code)
-            media = cl.media_info(media_pk)
-            
-            # 6. Extract image URL
-            image_url = None
-            if media.media_type == 1:  # Photo
-                image_url = media.thumbnail_url
-            elif media.media_type == 8:  # Album (Carousel)
-                image_url = media.resources[0].thumbnail_url if media.resources else media.thumbnail_url
-            else:
-                image_url = media.thumbnail_url
-                
-            if not image_url:
-                self._send_json({'error': 'No valid image URL found on the Instagram post'}, 500)
-                return
-                
-            # 7. Success response
-            res_data = {
-                'success': True,
-                'caption': media.caption_text or "",
-                'imageUrl': image_url
-            }
+            session_id = os.environ.get('session_id') or os.environ.get('SESSION_ID') or os.environ.get('INSTAGRAM_SESSION_ID')
+            proxy = os.environ.get('proxy') or os.environ.get('PROXY') or os.environ.get('HTTPS_PROXY') or os.environ.get('HTTP_PROXY')
+
+            res_data = fetch_instagram_media(media_code, session_id=session_id, proxy=proxy)
             self._send_json(res_data, 200)
-            
+
+        except InstagramSyncError as e:
+            self._send_json(e.to_payload(), e.status_code)
         except Exception as e:
-            error_detail = f"{str(e)}\n\nTraceback:\n{traceback.format_exc()}"
-            self._send_json({'error': error_detail}, 500)
+            print(f"Unexpected Instagram sync error: {e}\n{traceback.format_exc()}", file=sys.stderr)
+            self._send_json(
+                {
+                    'error': 'Instagram sync failed unexpectedly. Check server logs for details.',
+                    'code': 'instagram_sync_unexpected_error',
+                },
+                500,
+            )
 
     def _send_json(self, data, status_code):
         self.send_response(status_code)

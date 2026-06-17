@@ -14,6 +14,12 @@ type UploadCardResponse = {
   } | null;
 };
 
+function formatSyncErrorMessage(message: string) {
+  const firstTracebackIndex = message.search(/\n\s*Traceback:|\n\s*Traceback \(most recent call last\):/);
+  const cleanMessage = firstTracebackIndex >= 0 ? message.slice(0, firstTracebackIndex).trim() : message.trim();
+  return cleanMessage.length > 500 ? `${cleanMessage.slice(0, 497)}...` : cleanMessage;
+}
+
 export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
   const [activeTab, setActiveTab] = useState<'bulk' | 'single' | 'sync_url'>('bulk');
   const [uploading, setUploading] = useState(false);
@@ -45,7 +51,7 @@ export default function BulkUpload({ onComplete }: { onComplete: () => void }) {
       onComplete();
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : String(error);
-      alert('Error syncing: ' + errMsg);
+      alert('Error syncing: ' + formatSyncErrorMessage(errMsg));
     } finally {
       setSyncingUrl(false);
     }

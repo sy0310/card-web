@@ -5,6 +5,7 @@ import {
   buildCardUpdatePayload,
   buildSettingsRows,
   getCardDraftErrors,
+  normalizeInstagramUrl,
   normalizeAdminSettings,
 } from './adminDashboardUtils.ts';
 
@@ -109,4 +110,16 @@ test('buildSettingsRows returns normalized key-value rows for upsert', () => {
       { key: 'low_stock_threshold', value: '3' },
     ],
   );
+});
+
+test('normalizeInstagramUrl accepts pasted Instagram links without a scheme', () => {
+  assert.equal(
+    normalizeInstagramUrl(' instagram.com/p/ABC123/?igsh=share#caption '),
+    'https://www.instagram.com/p/ABC123/?igsh=share',
+  );
+  assert.equal(
+    normalizeInstagramUrl('https://www.instagram.com/reel/XYZ789/'),
+    'https://www.instagram.com/reel/XYZ789/',
+  );
+  assert.equal(normalizeInstagramUrl(''), '');
 });

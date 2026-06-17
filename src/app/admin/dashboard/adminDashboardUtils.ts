@@ -66,6 +66,30 @@ const parseCount = (value: string) => {
   return Math.max(0, Math.floor(parsed));
 };
 
+export function normalizeInstagramUrl(value: unknown) {
+  const rawValue = trimValue(value);
+  if (!rawValue) return '';
+
+  const withProtocol = /^[a-z][a-z\d+.-]*:\/\//i.test(rawValue)
+    ? rawValue
+    : `https://${rawValue}`;
+
+  try {
+    const url = new URL(withProtocol);
+    const hostname = url.hostname.toLowerCase();
+    if (hostname === 'instagram.com' || hostname.endsWith('.instagram.com')) {
+      url.protocol = 'https:';
+      url.hostname = 'www.instagram.com';
+      url.hash = '';
+      return url.toString();
+    }
+  } catch {
+    return rawValue;
+  }
+
+  return rawValue;
+}
+
 export function createCardDraft(card: Partial<CardUpdatePayload>): CardEditDraft {
   return {
     title: trimValue(card.title),
@@ -106,7 +130,7 @@ export function buildCardUpdatePayload(draft: CardEditDraft): CardUpdatePayload 
     album_era: trimValue(draft.album_era),
     rarity: trimValue(draft.rarity),
     inventory_count: parseCount(draft.inventory_count),
-    original_ig_url: trimValue(draft.original_ig_url),
+    original_ig_url: normalizeInstagramUrl(draft.original_ig_url),
     source: trimValue(draft.source || 'manual'),
     pob_name: trimValue(draft.pob_name),
   };
