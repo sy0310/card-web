@@ -552,6 +552,11 @@
   background: #101016;
 }
 
+.staleOrderReceiptPreview {
+  opacity: 0.48;
+  filter: grayscale(0.3);
+}
+
 .orderPreviewPlaceholder {
   min-height: 220px;
   display: grid;
@@ -560,6 +565,21 @@
   text-align: center;
   color: var(--text-muted);
   font-size: 0.88rem;
+}
+
+.orderImageNotice {
+  border-radius: 8px;
+  border: 1px solid rgba(225, 29, 72, 0.16);
+  background: rgba(225, 29, 72, 0.08);
+  color: #be123c;
+  font-size: 0.78rem;
+  font-weight: 800;
+  padding: 0.7rem 0.85rem;
+}
+
+.orderPreviewActions {
+  display: grid;
+  gap: 0.5rem;
 }
 
 .orderItemsHeader {

@@ -94,6 +94,7 @@ export default function AdminDashboard() {
   const [savingWishlist, setSavingWishlist] = useState(false);
   const [generatingWishlistImage, setGeneratingWishlistImage] = useState(false);
   const [wishlistImagePreview, setWishlistImagePreview] = useState<string | null>(null);
+  const [wishlistImageSignature, setWishlistImageSignature] = useState('');
   const [showBulkEdit, setShowBulkEdit] = useState(false);
   const [bulkUpdating, setBulkUpdating] = useState(false);
   const [bulkEditDraft, setBulkEditDraft] = useState({
@@ -151,6 +152,39 @@ export default function AdminDashboard() {
 
     return lineItems;
   }, [cardsById, wishlistDraft]);
+
+  const wishlistReceiptSignature = useMemo(() => {
+    if (!wishlistDraft) return '';
+
+    const itemSignature = wishlistReceiptItems
+      .map(item => [
+        item.id,
+        item.title,
+        item.quantity,
+        Number(item.price).toFixed(2),
+        item.image_url,
+      ].join(':'))
+      .join('|');
+
+    return [
+      wishlistDraft.user_ig_handle.trim(),
+      wishlistDraftTotal.toFixed(2),
+      settings.site_title,
+      settings.official_ig_handle,
+      settings.wishlist_footer_note,
+      itemSignature,
+    ].join('::');
+  }, [
+    settings.official_ig_handle,
+    settings.site_title,
+    settings.wishlist_footer_note,
+    wishlistDraft,
+    wishlistDraftTotal,
+    wishlistReceiptItems,
+  ]);
+  const wishlistImageIsStale = Boolean(
+    wishlistImagePreview && wishlistImageSignature !== wishlistReceiptSignature,
+  );
 
   const fetchCards = useCallback(async () => {
     setLoadingCards(true);
@@ -524,6 +558,7 @@ export default function AdminDashboard() {
       items: createWishlistItemsDraft(wishlist.wishlist_items ?? []),
     });
     setWishlistImagePreview(null);
+    setWishlistImageSignature('');
     setStatusMessage('');
   };
 
@@ -533,6 +568,7 @@ export default function AdminDashboard() {
     setSavingWishlist(false);
     setGeneratingWishlistImage(false);
     setWishlistImagePreview(null);
+    setWishlistImageSignature('');
   };
 
   const updateWishlistDraftItem = (
@@ -615,6 +651,13 @@ export default function AdminDashboard() {
       }
 
       setWishlistDraft(current => current ? { ...current, user_ig_handle: userHandle, items: validItems } : current);
+      setEditingWishlist(current => current ? {
+        ...current,
+        user_ig_handle: userHandle,
+        status: wishlistDraft.status,
+        notes: wishlistDraft.notes.trim(),
+        total_price: totalPrice,
+      } : current);
       setStatusMessage('Order updated.');
       await fetchWishlists();
       return true;
@@ -632,8 +675,18 @@ export default function AdminDashboard() {
     await saveWishlistDraft();
   };
 
-  const generateWishlistImage = async () => {
-    if (!wishlistReceiptRef.current || !wishlistDraft) return;
+  const generateWishlistImage = async ({ download = false }: { download?: boolean } = {}) => {
+    if (!wishlistReceiptRef.current || !wishlistDraft) return false;
+
+    const userHandle = wishlistDraft.user_ig_handle.trim();
+    if (!userHandle) {
+      setStatusMessage('Instagram handle is required before generating an image.');
+      return false;
+    }
+    if (wishlistReceiptItems.length === 0) {
+      setStatusMessage('Order needs at least one valid card before generating an image.');
+      return false;
+    }
 
     setGeneratingWishlistImage(true);
     setStatusMessage('');
@@ -651,15 +704,22 @@ export default function AdminDashboard() {
       });
 
       setWishlistImagePreview(dataUrl);
-      const safeHandle = wishlistDraft.user_ig_handle.replace(/[^a-z0-9_-]+/gi, '').replace(/^@/, '') || 'order';
-      const link = document.createElement('a');
-      link.download = `wishlist-${safeHandle}-updated.png`;
-      link.href = dataUrl;
-      link.click();
-      setStatusMessage('New order image generated.');
+      setWishlistImageSignature(wishlistReceiptSignature);
+
+      if (download) {
+        const safeHandle = userHandle.replace(/[^a-z0-9_-]+/gi, '').replace(/^@/, '') || 'order';
+        const link = document.createElement('a');
+        link.download = `wishlist-${safeHandle}-updated.png`;
+        link.href = dataUrl;
+        link.click();
+      }
+
+      setStatusMessage(download ? 'New order image downloaded.' : 'New order image preview generated.');
+      return true;
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
       setStatusMessage(`Error generating order image: ${errMsg}`);
+      return false;
     } finally {
       setGeneratingWishlistImage(false);
     }
@@ -668,7 +728,7 @@ export default function AdminDashboard() {
   const handleSaveWishlistAndGenerate = async () => {
     const saved = await saveWishlistDraft();
     if (saved) {
-      await generateWishlistImage();
+      await generateWishlistImage({ download: true });
     }
   };
 
@@ -1062,12 +1122,31 @@ export default function AdminDashboard() {
                 </div>
 
                 {wishlistImagePreview ? (
-                  <img src={wishlistImagePreview} alt="Updated wishlist receipt" className={styles.orderReceiptPreview} />
+                  <img
+                    src={wishlistImagePreview}
+                    alt="Updated wishlist receipt"
+                    className={`${styles.orderReceiptPreview} ${wishlistImageIsStale ? styles.staleOrderReceiptPreview : ''}`}
+                  />
                 ) : (
                   <div className={styles.orderPreviewPlaceholder}>
-                    <span>New order image preview appears here after generation.</span>
+                    <span>Generate a preview after adjusting this order.</span>
                   </div>
                 )}
+                {wishlistImageIsStale && (
+                  <div className={styles.orderImageNotice}>
+                    Order changed after this preview was generated.
+                  </div>
+                )}
+                <div className={styles.orderPreviewActions}>
+                  <button
+                    type="button"
+                    className={styles.secondaryBtn}
+                    onClick={() => void generateWishlistImage()}
+                    disabled={generatingWishlistImage}
+                  >
+                    {generatingWishlistImage ? 'Generating...' : wishlistImagePreview ? 'Regenerate preview' : 'Generate preview'}
+                  </button>
+                </div>
               </div>
 
               <div className={styles.formGrid}>
@@ -1183,7 +1262,7 @@ export default function AdminDashboard() {
                   onClick={() => void handleSaveWishlistAndGenerate()}
                   disabled={savingWishlist || generatingWishlistImage}
                 >
-                  {generatingWishlistImage ? 'Generating...' : 'Save & generate image'}
+                  {generatingWishlistImage ? 'Generating...' : 'Save & download image'}
                 </button>
               </div>
             </div>
@@ -1495,7 +1574,7 @@ export default function AdminDashboard() {
                         </td>
                         <td>
                           <button className={styles.editBtn} onClick={() => handleEditWishlist(wishlist)}>
-                            Edit order
+                            Edit / regenerate
                           </button>
                         </td>
                       </tr>
