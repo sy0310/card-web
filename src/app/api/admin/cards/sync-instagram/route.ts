@@ -8,6 +8,16 @@ import { parseInstagramMediaInput } from './syncInstagramUtils';
 
 export const runtime = 'nodejs';
 
+type InstagramFetchResult = {
+  success?: boolean;
+  caption?: string;
+  imageUrl?: string;
+  error?: string;
+  code?: string;
+  retryable?: boolean;
+  detail?: string;
+};
+
 const GROUP_MAP: Record<string, string> = {
   'svt': 'Seventeen',
   'seventeen': 'Seventeen',
@@ -149,6 +159,20 @@ function parseInstagramCaption(caption: string) {
   return { title, price, group, album_era };
 }
 
+function formatInstagramFetchError(fetchResult: InstagramFetchResult) {
+  if (fetchResult.error) return fetchResult.error;
+
+  if (fetchResult.code === 'instagram_lookup_blocked') {
+    return 'Instagram refused the lookup. Refresh the Instagram session and check the configured proxy.';
+  }
+
+  if (fetchResult.code === 'instagram_session_missing') {
+    return 'Instagram session is not configured. Add a session_id or saved Instagram settings before syncing.';
+  }
+
+  return 'Failed to fetch post details from Instagram.';
+}
+
 export async function POST(request: NextRequest) {
   try {
     const auth = await authenticateAdminRequest(request);
@@ -198,30 +222,32 @@ export async function POST(request: NextRequest) {
     });
 
     const bodyText = await fetchRes.text();
-    let fetchResult: {
-      success?: boolean;
-      caption?: string;
-      imageUrl?: string;
-      error?: string;
-      code?: string;
-      retryable?: boolean;
-      detail?: string;
-    };
+    let fetchResult: InstagramFetchResult;
     try {
       fetchResult = JSON.parse(bodyText);
     } catch {
+      console.warn('Instagram sync service returned non-JSON response', {
+        status: fetchRes.status,
+        body: bodyText.slice(0, 500),
+      });
       return NextResponse.json({ 
-        error: `Sync service returned non-JSON response (status ${fetchRes.status}): ${bodyText.slice(0, 200)}` 
+        error: `Instagram sync service returned an unexpected response (status ${fetchRes.status}).`,
       }, { status: 500 });
     }
 
     if (!fetchRes.ok || fetchResult.error || !fetchResult.imageUrl) {
       const status = fetchRes.status >= 400 && fetchRes.status < 600 ? fetchRes.status : 500;
+      if (fetchResult.detail) {
+        console.warn('Instagram sync lookup failed', {
+          mediaCode,
+          code: fetchResult.code,
+          detail: fetchResult.detail,
+        });
+      }
       return NextResponse.json({
-        error: fetchResult.error || 'Failed to fetch post details from Instagram.',
+        error: formatInstagramFetchError(fetchResult),
         code: fetchResult.code,
         retryable: fetchResult.retryable,
-        detail: fetchResult.detail,
       }, { status });
     }
 
@@ -291,7 +317,7 @@ export async function POST(request: NextRequest) {
       card,
     });
   } catch (err: unknown) {
-    const errMsg = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: errMsg || 'Internal Server Error' }, { status: 500 });
+    console.error('Instagram sync route failed', err);
+    return NextResponse.json({ error: 'Instagram sync failed. Please try again.' }, { status: 500 });
   }
 }

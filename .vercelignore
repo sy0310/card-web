@@ -1,0 +1,17 @@
+node_modules
+.next
+.git
+.vercel
+out
+build
+coverage
+.env*
+*.tsbuildinfo
+next-env.d.ts
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+ig_export
+cravity_official
+meguro_abebe
