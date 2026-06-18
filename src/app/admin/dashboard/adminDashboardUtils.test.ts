@@ -4,6 +4,9 @@ import {
   applyCardPatch,
   buildCardUpdatePayload,
   buildSettingsRows,
+  buildWishlistItemInsertRows,
+  calculateWishlistTotal,
+  createWishlistItemsDraft,
   getCardDraftErrors,
   normalizeInstagramUrl,
   normalizeAdminSettings,
@@ -122,4 +125,37 @@ test('normalizeInstagramUrl accepts pasted Instagram links without a scheme', ()
     'https://www.instagram.com/reel/XYZ789/',
   );
   assert.equal(normalizeInstagramUrl(''), '');
+});
+
+test('createWishlistItemsDraft groups repeated wishlist rows into quantities', () => {
+  assert.deepEqual(
+    createWishlistItemsDraft([
+      { card_id: 'card-1' },
+      { card_id: 'card-2' },
+      { card_id: 'card-1' },
+      { card_id: '' },
+    ]),
+    [
+      { key: 'card-1', card_id: 'card-1', quantity: '2' },
+      { key: 'card-2', card_id: 'card-2', quantity: '1' },
+    ],
+  );
+});
+
+test('calculateWishlistTotal and buildWishlistItemInsertRows use edited quantities', () => {
+  const items = [
+    { key: 'row-1', card_id: 'card-1', quantity: '2.9' },
+    { key: 'row-2', card_id: 'card-2', quantity: 'bad' },
+  ];
+  const cardsById = new Map([
+    ['card-1', { id: 'card-1', price: 12.345 }],
+    ['card-2', { id: 'card-2', price: '5' }],
+  ]);
+
+  assert.equal(calculateWishlistTotal(items, cardsById), 29.7);
+  assert.deepEqual(buildWishlistItemInsertRows('wishlist-1', items), [
+    { wishlist_id: 'wishlist-1', card_id: 'card-1' },
+    { wishlist_id: 'wishlist-1', card_id: 'card-1' },
+    { wishlist_id: 'wishlist-1', card_id: 'card-2' },
+  ]);
 });

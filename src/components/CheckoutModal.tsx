@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { toPng } from 'html-to-image';
 import { useWishlist } from '@/context/WishlistContext';
 import { supabase } from '@/lib/supabase';
-import { buildReceiptImageSrc, waitForImages } from './checkoutImageUtils';
+import WishlistReceipt from './WishlistReceipt';
+import { waitForImages } from './checkoutImageUtils';
 import styles from './CheckoutModal.module.css';
 
 export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) {
@@ -57,10 +58,12 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
       if (wishlistError) throw wishlistError;
 
       // 2. Log Items
-      const wishlistItems = items.map(item => ({
-        wishlist_id: wishlistData.id,
-        card_id: item.id
-      }));
+      const wishlistItems = items.flatMap(item =>
+        Array.from({ length: Math.max(1, Math.floor(item.quantity)) }, () => ({
+          wishlist_id: wishlistData.id,
+          card_id: item.id,
+        })),
+      );
 
       const { error: itemsError } = await supabase
         .from('wishlist_items')
@@ -152,50 +155,13 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
 
         {/* Hidden Summary Template for Image Generation */}
         <div style={{ position: 'absolute', left: '-9999px', top: '-9999px' }}>
-          <div ref={summaryRef} className={styles.summaryTemplate}>
-            <div className={styles.summaryHeader}>
-              <h1>{settings.site_title}</h1>
-              <p>WISHLIST REQUEST</p>
-            </div>
-
-            <div className={styles.summaryUser}>
-              <span>Instagram:</span>
-              <strong>{igHandle}</strong>
-            </div>
-
-            <div className={styles.summaryItems}>
-              {items.map(item => (
-                <div key={item.id} className={styles.summaryItem}>
-                  <div className={styles.summaryThumb}>
-                    <img
-                      src={buildReceiptImageSrc(item.image_url, `${item.id}-${item.quantity}`)}
-                      alt={item.title}
-                      loading="eager"
-                      decoding="sync"
-                    />
-                  </div>
-                  <div className={styles.summaryItemInfo}>
-                    <h4>{item.title}</h4>
-                    <p>{item.group_name} {item.quantity > 1 ? ` (x${item.quantity})` : ''}</p>
-                  </div>
-                  <div className={styles.summaryItemPrice}>
-                    ${(Number(item.price) * item.quantity).toFixed(2)}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className={styles.summaryFooter}>
-              <div className={styles.summaryTotal}>
-                <span>TOTAL ESTIMATED</span>
-                <h2>${Number(totalPrice).toFixed(2)}</h2>
-              </div>
-              <div className={styles.summaryNextStep}>
-                <span>Next step</span>
-                <p>{settings.wishlist_footer_note}</p>
-                <strong>{settings.official_ig_handle}</strong>
-              </div>
-            </div>
+          <div ref={summaryRef}>
+            <WishlistReceipt
+              settings={settings}
+              userIgHandle={igHandle}
+              items={items}
+              totalPrice={totalPrice}
+            />
           </div>
         </div>
       </div>

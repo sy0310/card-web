@@ -36,6 +36,24 @@ export type AdminSettings = {
   low_stock_threshold: string;
 };
 
+export type WishlistDraftItem = {
+  key: string;
+  card_id: string;
+  quantity: string;
+};
+
+export type WishlistCardSummary = {
+  id: string;
+  title?: string;
+  price?: number | string;
+  image_url?: string;
+  group_name?: string;
+};
+
+export type WishlistStoredItem = {
+  card_id?: string | null;
+};
+
 export const defaultAdminSettings: AdminSettings = {
   site_title: 'K-POP CARD',
   official_ig_handle: '@official_account',
@@ -169,4 +187,46 @@ export function normalizeAdminSettings(settings: Partial<AdminSettings>): AdminS
 export function buildSettingsRows(settings: Partial<AdminSettings>) {
   const normalized = normalizeAdminSettings(settings);
   return settingKeys.map(key => ({ key, value: normalized[key] }));
+}
+
+export function parseWishlistQuantity(value: string) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 1;
+  return Math.max(1, Math.floor(parsed));
+}
+
+export function createWishlistItemsDraft(items: WishlistStoredItem[] = []): WishlistDraftItem[] {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    const cardId = trimValue(item.card_id);
+    if (!cardId) continue;
+    counts.set(cardId, (counts.get(cardId) ?? 0) + 1);
+  }
+
+  return Array.from(counts.entries()).map(([cardId, quantity]) => ({
+    key: cardId,
+    card_id: cardId,
+    quantity: String(quantity),
+  }));
+}
+
+export function calculateWishlistTotal(
+  items: WishlistDraftItem[],
+  cardsById: ReadonlyMap<string, WishlistCardSummary>,
+) {
+  const total = items.reduce((sum, item) => {
+    const card = cardsById.get(item.card_id);
+    return sum + parseMoney(String(card?.price ?? 0)) * parseWishlistQuantity(item.quantity);
+  }, 0);
+
+  return Math.round(total * 100) / 100;
+}
+
+export function buildWishlistItemInsertRows(wishlistId: string, items: WishlistDraftItem[]) {
+  return items.flatMap(item =>
+    Array.from({ length: parseWishlistQuantity(item.quantity) }, () => ({
+      wishlist_id: wishlistId,
+      card_id: item.card_id,
+    })),
+  );
 }

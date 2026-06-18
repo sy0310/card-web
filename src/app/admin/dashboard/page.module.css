@@ -507,6 +507,109 @@
   font-weight: 800;
 }
 
+.orderEditorBody {
+  grid-template-columns: 300px 1fr;
+}
+
+.orderPreviewColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.orderSummaryBox,
+.orderPreviewPlaceholder {
+  border: 1px solid rgba(125, 83, 222, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.orderSummaryBox {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 1rem;
+}
+
+.orderSummaryBox span,
+.orderSummaryBox small {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.orderSummaryBox strong {
+  font-size: 1.8rem;
+}
+
+.orderReceiptPreview {
+  width: 100%;
+  max-height: 420px;
+  object-fit: contain;
+  border: 1px solid rgba(125, 83, 222, 0.16);
+  border-radius: 8px;
+  background: #101016;
+}
+
+.orderPreviewPlaceholder {
+  min-height: 220px;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+}
+
+.orderItemsHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.orderItemsHeader span {
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.orderItemsEditor {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.orderItemEditorRow {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 76px auto;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.65rem;
+  border: 1px solid rgba(125, 83, 222, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.orderItemEditorRow select,
+.orderItemEditorRow input {
+  min-width: 0;
+  border: 1px solid rgba(125, 83, 222, 0.18);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.76);
+  color: var(--foreground);
+  font: inherit;
+  padding: 0.62rem 0.7rem;
+  outline: none;
+}
+
+.hiddenReceipt {
+  position: absolute;
+  left: -9999px;
+  top: -9999px;
+}
+
 .settingsView {
   width: 100%;
 }
@@ -623,7 +726,8 @@
   }
 
   .settingsGrid,
-  .editorBody {
+  .editorBody,
+  .orderEditorBody {
     grid-template-columns: 1fr;
   }
 
@@ -682,6 +786,15 @@
   .footerActions {
     flex-direction: column;
   }
+
+  .orderItemEditorRow {
+    grid-template-columns: 32px minmax(0, 1fr);
+  }
+
+  .orderItemEditorRow input,
+  .orderItemEditorRow button {
+    grid-column: 2;
+  }
 }
 
 .searchBar {
@@ -730,4 +843,3 @@
   background: rgba(125, 83, 222, 0.05);
   transform: translateY(-1px);
 }
-

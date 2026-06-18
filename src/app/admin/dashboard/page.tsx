@@ -1,23 +1,31 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import { toPng } from 'html-to-image';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import BulkUpload from '@/components/admin/BulkUpload';
+import WishlistReceipt, { type ReceiptLineItem } from '@/components/WishlistReceipt';
+import { waitForImages } from '@/components/checkoutImageUtils';
 import { fetchJsonWithRetry, formatAdminFetchError } from '@/lib/client/adminFetch';
 import styles from './page.module.css';
 import {
   type AdminSettings,
   type CardEditDraft,
   type CardUpdatePayload,
+  type WishlistDraftItem,
   applyCardPatch,
   buildCardUpdatePayload,
   buildSettingsRows,
+  buildWishlistItemInsertRows,
+  calculateWishlistTotal,
   createCardDraft,
+  createWishlistItemsDraft,
   defaultAdminSettings,
   getCardDraftErrors,
   normalizeAdminSettings,
+  parseWishlistQuantity,
 } from './adminDashboardUtils';
 
 type AdminTab = 'inventory' | 'wishlists' | 'settings';
@@ -40,11 +48,9 @@ type ImageUploadResponse = {
 };
 
 type WishlistItem = {
+  id: string;
   card_id: string;
-  cards?: {
-    image_url?: string;
-    title?: string;
-  };
+  cards?: AdminCard | null;
 };
 
 type Wishlist = {
@@ -53,7 +59,15 @@ type Wishlist = {
   user_ig_handle: string;
   total_price: number;
   status: string;
+  notes?: string | null;
   wishlist_items?: WishlistItem[];
+};
+
+type WishlistEditDraft = {
+  user_ig_handle: string;
+  status: string;
+  notes: string;
+  items: WishlistDraftItem[];
 };
 
 export default function AdminDashboard() {
@@ -75,6 +89,11 @@ export default function AdminDashboard() {
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [selectedWishlistIds, setSelectedWishlistIds] = useState<string[]>([]);
   const [updatingWishlists, setUpdatingWishlists] = useState(false);
+  const [editingWishlist, setEditingWishlist] = useState<Wishlist | null>(null);
+  const [wishlistDraft, setWishlistDraft] = useState<WishlistEditDraft | null>(null);
+  const [savingWishlist, setSavingWishlist] = useState(false);
+  const [generatingWishlistImage, setGeneratingWishlistImage] = useState(false);
+  const [wishlistImagePreview, setWishlistImagePreview] = useState<string | null>(null);
   const [showBulkEdit, setShowBulkEdit] = useState(false);
   const [bulkUpdating, setBulkUpdating] = useState(false);
   const [bulkEditDraft, setBulkEditDraft] = useState({
@@ -90,6 +109,9 @@ export default function AdminDashboard() {
   const [statusMessage, setStatusMessage] = useState('');
   const router = useRouter();
   const [searchTerm, setSearchTerm] = useState('');
+  const wishlistReceiptRef = useRef<HTMLDivElement>(null);
+
+  const cardsById = useMemo(() => new Map(cards.map(card => [card.id, card])), [cards]);
 
   const filteredCards = useMemo(() => {
     if (!searchTerm.trim()) return cards;
@@ -103,6 +125,32 @@ export default function AdminDashboard() {
         card.member_name?.toLowerCase().includes(term)
     );
   }, [cards, searchTerm]);
+
+  const wishlistDraftTotal = useMemo(() => {
+    if (!wishlistDraft) return 0;
+    return calculateWishlistTotal(wishlistDraft.items, cardsById);
+  }, [cardsById, wishlistDraft]);
+
+  const wishlistReceiptItems = useMemo<ReceiptLineItem[]>(() => {
+    if (!wishlistDraft) return [];
+
+    const lineItems: ReceiptLineItem[] = [];
+    for (const item of wishlistDraft.items) {
+      const card = cardsById.get(item.card_id);
+      if (!card) continue;
+
+      lineItems.push({
+        id: item.key,
+        title: card.title || 'Untitled card',
+        price: Number(card.price) || 0,
+        image_url: card.image_url || '',
+        group_name: card.group_name || card.member_name || card.album_era || '',
+        quantity: parseWishlistQuantity(item.quantity),
+      });
+    }
+
+    return lineItems;
+  }, [cardsById, wishlistDraft]);
 
   const fetchCards = useCallback(async () => {
     setLoadingCards(true);
@@ -460,6 +508,170 @@ export default function AdminDashboard() {
     }
   };
 
+  const createWishlistDraftKey = () => {
+    if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+      return crypto.randomUUID();
+    }
+    return `${Date.now()}-${Math.random()}`;
+  };
+
+  const handleEditWishlist = (wishlist: Wishlist) => {
+    setEditingWishlist(wishlist);
+    setWishlistDraft({
+      user_ig_handle: wishlist.user_ig_handle || '',
+      status: wishlist.status || 'pending',
+      notes: wishlist.notes || '',
+      items: createWishlistItemsDraft(wishlist.wishlist_items ?? []),
+    });
+    setWishlistImagePreview(null);
+    setStatusMessage('');
+  };
+
+  const closeWishlistEditor = () => {
+    setEditingWishlist(null);
+    setWishlistDraft(null);
+    setSavingWishlist(false);
+    setGeneratingWishlistImage(false);
+    setWishlistImagePreview(null);
+  };
+
+  const updateWishlistDraftItem = (
+    key: string,
+    patch: Partial<Pick<WishlistDraftItem, 'card_id' | 'quantity'>>,
+  ) => {
+    setWishlistDraft(current => current ? {
+      ...current,
+      items: current.items.map(item => item.key === key ? { ...item, ...patch } : item),
+    } : current);
+  };
+
+  const addWishlistDraftItem = () => {
+    const firstCardId = cards[0]?.id || '';
+    setWishlistDraft(current => current ? {
+      ...current,
+      items: [
+        ...current.items,
+        {
+          key: createWishlistDraftKey(),
+          card_id: firstCardId,
+          quantity: '1',
+        },
+      ],
+    } : current);
+  };
+
+  const removeWishlistDraftItem = (key: string) => {
+    setWishlistDraft(current => current ? {
+      ...current,
+      items: current.items.filter(item => item.key !== key),
+    } : current);
+  };
+
+  const saveWishlistDraft = async () => {
+    if (!editingWishlist || !wishlistDraft) return false;
+
+    const userHandle = wishlistDraft.user_ig_handle.trim();
+    const validItems = wishlistDraft.items.filter(item => item.card_id && cardsById.has(item.card_id));
+    if (!userHandle) {
+      setStatusMessage('Instagram handle is required.');
+      return false;
+    }
+    if (validItems.length === 0) {
+      setStatusMessage('Order needs at least one card.');
+      return false;
+    }
+
+    setSavingWishlist(true);
+    setStatusMessage('');
+
+    try {
+      const totalPrice = calculateWishlistTotal(validItems, cardsById);
+      const { error: wishlistError } = await supabase
+        .from('wishlists')
+        .update({
+          user_ig_handle: userHandle,
+          status: wishlistDraft.status,
+          notes: wishlistDraft.notes.trim(),
+          total_price: totalPrice,
+        })
+        .eq('id', editingWishlist.id);
+
+      if (wishlistError) throw wishlistError;
+
+      const { error: deleteItemsError } = await supabase
+        .from('wishlist_items')
+        .delete()
+        .eq('wishlist_id', editingWishlist.id);
+
+      if (deleteItemsError) throw deleteItemsError;
+
+      const itemRows = buildWishlistItemInsertRows(editingWishlist.id, validItems);
+      if (itemRows.length > 0) {
+        const { error: insertItemsError } = await supabase
+          .from('wishlist_items')
+          .insert(itemRows);
+
+        if (insertItemsError) throw insertItemsError;
+      }
+
+      setWishlistDraft(current => current ? { ...current, user_ig_handle: userHandle, items: validItems } : current);
+      setStatusMessage('Order updated.');
+      await fetchWishlists();
+      return true;
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      setStatusMessage(`Error saving order: ${errMsg}`);
+      return false;
+    } finally {
+      setSavingWishlist(false);
+    }
+  };
+
+  const handleSaveWishlist = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    await saveWishlistDraft();
+  };
+
+  const generateWishlistImage = async () => {
+    if (!wishlistReceiptRef.current || !wishlistDraft) return;
+
+    setGeneratingWishlistImage(true);
+    setStatusMessage('');
+
+    try {
+      const imageReport = await waitForImages(wishlistReceiptRef.current);
+      if (imageReport.failed > 0) {
+        console.warn('Some admin receipt images failed to load before export:', imageReport);
+      }
+
+      const dataUrl = await toPng(wishlistReceiptRef.current, {
+        cacheBust: true,
+        includeQueryParams: true,
+        quality: 1,
+      });
+
+      setWishlistImagePreview(dataUrl);
+      const safeHandle = wishlistDraft.user_ig_handle.replace(/[^a-z0-9_-]+/gi, '').replace(/^@/, '') || 'order';
+      const link = document.createElement('a');
+      link.download = `wishlist-${safeHandle}-updated.png`;
+      link.href = dataUrl;
+      link.click();
+      setStatusMessage('New order image generated.');
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      setStatusMessage(`Error generating order image: ${errMsg}`);
+    } finally {
+      setGeneratingWishlistImage(false);
+    }
+  };
+
+  const handleSaveWishlistAndGenerate = async () => {
+    const saved = await saveWishlistDraft();
+    if (saved) {
+      await generateWishlistImage();
+    }
+  };
+
   const handleBulkUpdate = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (selectedIds.length === 0) return;
@@ -528,6 +740,7 @@ export default function AdminDashboard() {
     setActiveTab(tab);
     setSelectedIds([]);
     setSelectedWishlistIds([]);
+    closeWishlistEditor();
   };
 
   if (!session) return <div className={styles.loading}>Checking session...</div>;
@@ -827,6 +1040,157 @@ export default function AdminDashboard() {
         </div>
       )}
 
+      {editingWishlist && wishlistDraft && (
+        <div className={styles.modalOverlay} onClick={closeWishlistEditor}>
+          <form className={styles.editorPanel} onSubmit={handleSaveWishlist} onClick={event => event.stopPropagation()}>
+            <div className={styles.editorHeader}>
+              <div>
+                <p className={styles.eyebrow}>Order editor</p>
+                <h2>{wishlistDraft.user_ig_handle || 'Wishlist order'}</h2>
+              </div>
+              <button type="button" className={styles.closeBtn} onClick={closeWishlistEditor}>
+                Close
+              </button>
+            </div>
+
+            <div className={`${styles.editorBody} ${styles.orderEditorBody}`}>
+              <div className={styles.orderPreviewColumn}>
+                <div className={styles.orderSummaryBox}>
+                  <span>Current total</span>
+                  <strong>${wishlistDraftTotal.toFixed(2)}</strong>
+                  <small>{wishlistReceiptItems.length} line item{wishlistReceiptItems.length === 1 ? '' : 's'}</small>
+                </div>
+
+                {wishlistImagePreview ? (
+                  <img src={wishlistImagePreview} alt="Updated wishlist receipt" className={styles.orderReceiptPreview} />
+                ) : (
+                  <div className={styles.orderPreviewPlaceholder}>
+                    <span>New order image preview appears here after generation.</span>
+                  </div>
+                )}
+              </div>
+
+              <div className={styles.formGrid}>
+                <label className={styles.field}>
+                  <span>Instagram Handle</span>
+                  <input
+                    type="text"
+                    value={wishlistDraft.user_ig_handle}
+                    onChange={event => setWishlistDraft(current => current ? { ...current, user_ig_handle: event.target.value } : current)}
+                    required
+                  />
+                </label>
+                <label className={styles.field}>
+                  <span>Status</span>
+                  <select
+                    value={wishlistDraft.status}
+                    onChange={event => setWishlistDraft(current => current ? { ...current, status: event.target.value } : current)}
+                  >
+                    <option value="pending">Pending</option>
+                    <option value="completed">Completed</option>
+                  </select>
+                </label>
+                <label className={`${styles.field} ${styles.wideField}`}>
+                  <span>Notes</span>
+                  <textarea
+                    rows={3}
+                    value={wishlistDraft.notes}
+                    onChange={event => setWishlistDraft(current => current ? { ...current, notes: event.target.value } : current)}
+                    placeholder="Internal order notes"
+                  />
+                </label>
+
+                <div className={`${styles.field} ${styles.wideField}`}>
+                  <div className={styles.orderItemsHeader}>
+                    <span>Order Items</span>
+                    <button type="button" className={styles.secondaryBtn} onClick={addWishlistDraftItem}>
+                      Add item
+                    </button>
+                  </div>
+
+                  <div className={styles.orderItemsEditor}>
+                    {wishlistDraft.items.length > 0 ? wishlistDraft.items.map(item => {
+                      const selectedCard = cardsById.get(item.card_id);
+                      return (
+                        <div key={item.key} className={styles.orderItemEditorRow}>
+                          {selectedCard?.image_url ? (
+                            <img src={selectedCard.image_url} alt="" className={styles.microImg} />
+                          ) : (
+                            <div className={styles.microImg} />
+                          )}
+                          <select
+                            value={item.card_id}
+                            onChange={event => updateWishlistDraftItem(item.key, { card_id: event.target.value })}
+                          >
+                            <option value="">Select a card</option>
+                            {cards.map(card => (
+                              <option key={card.id} value={card.id}>
+                                {card.title} - ${Number(card.price || 0).toFixed(2)}
+                              </option>
+                            ))}
+                          </select>
+                          <input
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={item.quantity}
+                            onChange={event => updateWishlistDraftItem(item.key, { quantity: event.target.value })}
+                            aria-label="Quantity"
+                          />
+                          <button
+                            type="button"
+                            className={styles.deleteInlineBtn}
+                            onClick={() => removeWishlistDraftItem(item.key)}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      );
+                    }) : (
+                      <p className={styles.emptyText}>No items yet. Add a card to this order.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className={styles.hiddenReceipt}>
+              <div ref={wishlistReceiptRef}>
+                <WishlistReceipt
+                  settings={settings}
+                  userIgHandle={wishlistDraft.user_ig_handle}
+                  items={wishlistReceiptItems}
+                  totalPrice={wishlistDraftTotal}
+                  cacheKey={`${editingWishlist.id}-${wishlistDraft.items.length}-${wishlistDraftTotal}`}
+                />
+              </div>
+            </div>
+
+            <div className={styles.editorFooter}>
+              <span className={styles.smallText}>
+                Saving rewrites the order items and recalculates the total.
+              </span>
+              <div className={styles.footerActions}>
+                <button type="button" className={styles.secondaryBtn} onClick={closeWishlistEditor}>
+                  Cancel
+                </button>
+                <button type="submit" className={styles.secondaryBtn} disabled={savingWishlist}>
+                  {savingWishlist ? 'Saving...' : 'Save order'}
+                </button>
+                <button
+                  type="button"
+                  className={styles.addBtn}
+                  onClick={() => void handleSaveWishlistAndGenerate()}
+                  disabled={savingWishlist || generatingWishlistImage}
+                >
+                  {generatingWishlistImage ? 'Generating...' : 'Save & generate image'}
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      )}
+
       <aside className={styles.sidebar}>
         <div className={styles.logo}>
           ADMIN <span>PANEL</span>
@@ -1082,6 +1446,7 @@ export default function AdminDashboard() {
                       <th>Items</th>
                       <th>Total</th>
                       <th>Status</th>
+                      <th>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1115,7 +1480,7 @@ export default function AdminDashboard() {
                           <div className={styles.wishlistItemsPreview}>
                             {wishlist.wishlist_items?.map(item => (
                               <img
-                                key={item.card_id}
+                                key={item.id}
                                 src={item.cards?.image_url}
                                 alt=""
                                 title={item.cards?.title}
@@ -1127,6 +1492,11 @@ export default function AdminDashboard() {
                         <td>${Number(wishlist.total_price || 0).toFixed(2)}</td>
                         <td>
                           <span className={styles.statusBadge}>{wishlist.status}</span>
+                        </td>
+                        <td>
+                          <button className={styles.editBtn} onClick={() => handleEditWishlist(wishlist)}>
+                            Edit order
+                          </button>
                         </td>
                       </tr>
                     ))}
