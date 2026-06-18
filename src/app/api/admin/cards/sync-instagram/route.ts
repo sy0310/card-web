@@ -4,7 +4,7 @@ import {
   formatSupabaseAdminWriteError,
 } from '@/lib/server/supabaseAdmin';
 import { buildCardImagePath } from '../upload/uploadCardUtils';
-import { parseInstagramMediaInput } from './syncInstagramUtils';
+import { parseInstagramCaption, parseInstagramMediaInput } from './syncInstagramUtils';
 
 export const runtime = 'nodejs';
 
@@ -17,147 +17,6 @@ type InstagramFetchResult = {
   retryable?: boolean;
   detail?: string;
 };
-
-const GROUP_MAP: Record<string, string> = {
-  'svt': 'Seventeen',
-  'seventeen': 'Seventeen',
-  '82major': '82major',
-  '82m': '82major',
-  'p1h': 'P1Harmony',
-  'p1harmony': 'P1Harmony',
-  'zb1': 'ZEROBASEONE',
-  'zerobaseone': 'ZEROBASEONE',
-  'lsf': 'LE SSERAFIM',
-  'lesserafim': 'LE SSERAFIM',
-  'adt': '&Team',
-  '&team': '&Team',
-  'amp': 'Ampers&one',
-  'ampers&one': 'Ampers&one',
-  'nct': 'NCT',
-  'nctw': 'NCT Wish',
-  'crv': 'CRAVITY',
-  'cravity': 'CRAVITY',
-  'bnd': 'BOYNEXTDOOR',
-  'boynextdoor': 'BOYNEXTDOOR',
-  'kfl': 'Kickflip',
-  'kickflip': 'Kickflip',
-  'cye': 'CYE',
-  'ahf': 'ahof',
-  'ahof': 'ahof',
-  'xahf': 'ahof',
-  'xlov': 'xlov',
-  'nua': 'NouerA',
-  'nouera': 'NouerA',
-  'atz': 'Ateez',
-  'ateez': 'Ateez',
-  'cyn': 'Yena',
-  'yena': 'Yena',
-  'adp': 'Allday project',
-  'allday': 'Allday project',
-  'kik': 'kiiikiii',
-  'kiiikiii': 'kiiikiii',
-  'ehp': 'Enhypen',
-  'enhypen': 'Enhypen',
-  'xik': 'Xikers',
-  'xikers': 'Xikers',
-  'tws': 'TWS',
-  'illit': 'Illit',
-  'aespa': 'aespa',
-  'h2h': 'aespa',
-  'txt': 'TXT',
-  'itzy': 'Itzy',
-  'gmmtv': 'GMMTV',
-  'evnne': 'Evnne',
-  'rescene': 'RESCENE',
-  'qwer': 'QWER',
-  'kep1er': 'Kep1er',
-  'kiss of life': 'Kiss of Life',
-  'gidle': '(G)I-DLE',
-  'i-dle': '(G)I-DLE',
-  'exo': 'EXO',
-  'kai': 'EXO',
-  'chanyeol': 'EXO',
-  'baekhyun': 'EXO',
-  'riiz': 'Riize',
-  'riize': 'Riize',
-  'stray': 'Stray Kids',
-  'skz': 'Stray Kids'
-};
-
-function parseInstagramCaption(caption: string) {
-  const lines = caption.split(/\r?\n/);
-  const firstLine = lines[0]?.trim() || '';
-  
-  let price = 0;
-  let group = '';
-  let album_era = '';
-
-  // 1. Extract Price (handles "$35 set", "$24", etc.)
-  const priceMatch = caption.match(/\$(\d+)(?:\s+set)?/i);
-  if (priceMatch) {
-    price = parseFloat(priceMatch[1]);
-  }
-
-  // 2. Parse Group, Album & Title
-  if (firstLine.startsWith('#')) {
-    const tokens = firstLine.split(/\s+/).filter(Boolean);
-    const firstToken = tokens[0]; // e.g. "#meguronua"
-    
-    let rawTag = firstToken.substring(1).toLowerCase(); // remove '#'
-    if (rawTag.startsWith('megurop')) {
-      rawTag = rawTag.substring(7);
-    } else if (rawTag.startsWith('megurox')) {
-      rawTag = rawTag.substring(7);
-    } else if (rawTag.startsWith('meguro')) {
-      rawTag = rawTag.substring(6);
-    }
-    
-    if (GROUP_MAP[rawTag]) {
-      group = GROUP_MAP[rawTag];
-    }
-    
-    if (!group) {
-      for (const token of tokens) {
-        const cleanedToken = token.replace(/[^a-zA-Z0-9&]/g, '').toLowerCase();
-        if (GROUP_MAP[cleanedToken]) {
-          group = GROUP_MAP[cleanedToken];
-          break;
-        }
-      }
-    }
-    
-    if (!group && tokens.length >= 2) {
-      group = tokens[1];
-    }
-    
-    const groupLower = group.toLowerCase();
-    const groupWords = groupLower.split(/\s+/);
-    
-    const remainingTokens = tokens.slice(1).filter(t => {
-      const cleanedT = t.toLowerCase().replace(/[^a-zA-Z0-9&]/g, '');
-      if (t === firstToken) return false;
-      if (cleanedT === rawTag) return false;
-      if (groupWords.includes(cleanedT)) return false;
-      return true;
-    });
-
-    if (remainingTokens.length >= 1) {
-      album_era = remainingTokens[0];
-    }
-  }
-
-  // 3. Extract Title (strip first token if starts with #)
-  let title = firstLine;
-  if (firstLine.startsWith('#')) {
-    const tokens = firstLine.split(/\s+/).filter(Boolean);
-    if (tokens.length >= 2) {
-      title = tokens.slice(1).join(' ');
-    }
-  }
-  title = title.substring(0, 80).trim() || 'Instagram Post';
-
-  return { title, price, group, album_era };
-}
 
 function formatInstagramFetchError(fetchResult: InstagramFetchResult) {
   if (fetchResult.error) return fetchResult.error;
@@ -295,6 +154,7 @@ export async function POST(request: NextRequest) {
         price: metadata.price,
         group_name: metadata.group,
         album_era: metadata.album_era,
+        pob_name: metadata.pob_name,
         image_url: publicUrl,
         source: 'instagram',
         original_ig_url: standardIgUrl,

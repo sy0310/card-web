@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseInstagramMediaInput } from './syncInstagramUtils.ts';
+import { parseInstagramCaption, parseInstagramMediaInput } from './syncInstagramUtils.ts';
 
 test('parseInstagramMediaInput accepts post, reel, tv and shortcode inputs', () => {
   assert.deepEqual(parseInstagramMediaInput('https://www.instagram.com/p/ABC123_def/?igsh=share'), {
@@ -30,4 +30,26 @@ test('parseInstagramMediaInput accepts post, reel, tv and shortcode inputs', () 
 test('parseInstagramMediaInput rejects unrelated URLs', () => {
   assert.equal(parseInstagramMediaInput('https://example.com/p/ABC123/'), null);
   assert.equal(parseInstagramMediaInput(''), null);
+});
+
+test('parseInstagramCaption strips availability links and extracts POB metadata', () => {
+  assert.deepEqual(
+    parseInstagramCaption(`#meguroriiz riize ll makestar kaohsiung photo event finger toy ver available on https://megu.example/card
+$18
+shipping later`),
+    {
+      title: 'riize ll makestar kaohsiung photo event finger toy ver',
+      price: 18,
+      group: 'Riize',
+      album_era: 'll',
+      pob_name: 'makestar kaohsiung photo event finger toy ver',
+    },
+  );
+});
+
+test('parseInstagramCaption also strips misspelled availability labels', () => {
+  assert.equal(
+    parseInstagramCaption('#meguroriize riize ll makestar avaible on https://example.com').title,
+    'riize ll makestar',
+  );
 });
