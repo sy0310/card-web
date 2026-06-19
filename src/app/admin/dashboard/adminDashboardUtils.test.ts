@@ -7,7 +7,9 @@ import {
   buildWishlistItemInsertRows,
   calculateWishlistTotal,
   createWishlistItemsDraft,
+  formatAdminError,
   getCardDraftErrors,
+  isMissingColumnError,
   normalizeInstagramUrl,
   normalizeAdminSettings,
 } from './adminDashboardUtils.ts';
@@ -158,4 +160,30 @@ test('calculateWishlistTotal and buildWishlistItemInsertRows use edited quantiti
     { wishlist_id: 'wishlist-1', card_id: 'card-1' },
     { wishlist_id: 'wishlist-1', card_id: 'card-2' },
   ]);
+});
+
+test('formatAdminError surfaces Supabase object details instead of object placeholders', () => {
+  assert.equal(
+    formatAdminError({
+      message: "Could not find the 'notes' column of 'wishlists' in the schema cache",
+      details: 'The column was not found.',
+      hint: 'Refresh schema cache.',
+      code: 'PGRST204',
+    }),
+    "Could not find the 'notes' column of 'wishlists' in the schema cache The column was not found. Refresh schema cache. Code: PGRST204",
+  );
+});
+
+test('isMissingColumnError detects schema cache column drift', () => {
+  assert.equal(
+    isMissingColumnError(
+      {
+        message: "Could not find the 'notes' column of 'wishlists' in the schema cache",
+        code: 'PGRST204',
+      },
+      'notes',
+    ),
+    true,
+  );
+  assert.equal(isMissingColumnError({ message: 'row-level security denied access' }, 'notes'), false);
 });

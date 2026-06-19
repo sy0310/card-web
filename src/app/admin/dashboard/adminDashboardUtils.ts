@@ -54,6 +54,13 @@ export type WishlistStoredItem = {
   card_id?: string | null;
 };
 
+type ErrorLikeRecord = {
+  message?: unknown;
+  details?: unknown;
+  hint?: unknown;
+  code?: unknown;
+};
+
 export const defaultAdminSettings: AdminSettings = {
   site_title: 'K-POP CARD',
   official_ig_handle: '@official_account',
@@ -228,5 +235,46 @@ export function buildWishlistItemInsertRows(wishlistId: string, items: WishlistD
       wishlist_id: wishlistId,
       card_id: item.card_id,
     })),
+  );
+}
+
+export function formatAdminError(error: unknown, fallback = 'Unknown error') {
+  if (error instanceof Error) return error.message || fallback;
+  if (typeof error === 'string') return error || fallback;
+
+  if (error && typeof error === 'object') {
+    const record = error as ErrorLikeRecord;
+    const parts = [
+      record.message,
+      record.details,
+      record.hint,
+      record.code ? `Code: ${record.code}` : '',
+    ]
+      .map(value => String(value ?? '').trim())
+      .filter(Boolean);
+
+    if (parts.length > 0) return parts.join(' ');
+
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return fallback;
+    }
+  }
+
+  return String(error ?? fallback);
+}
+
+export function isMissingColumnError(error: unknown, columnName: string) {
+  const message = formatAdminError(error).toLowerCase();
+  const column = columnName.toLowerCase();
+
+  return (
+    message.includes(column) &&
+    (
+      message.includes('column') ||
+      message.includes('schema cache') ||
+      message.includes('pgrst204')
+    )
   );
 }

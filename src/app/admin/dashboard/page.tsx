@@ -23,7 +23,9 @@ import {
   createCardDraft,
   createWishlistItemsDraft,
   defaultAdminSettings,
+  formatAdminError,
   getCardDraftErrors,
+  isMissingColumnError,
   normalizeAdminSettings,
   parseWishlistQuantity,
 } from './adminDashboardUtils';
@@ -622,15 +624,32 @@ export default function AdminDashboard() {
 
     try {
       const totalPrice = calculateWishlistTotal(validItems, cardsById);
-      const { error: wishlistError } = await supabase
+      const wishlistUpdate = {
+        user_ig_handle: userHandle,
+        status: wishlistDraft.status,
+        notes: wishlistDraft.notes.trim(),
+        total_price: totalPrice,
+      };
+      let notesColumnUnavailable = false;
+      let { error: wishlistError } = await supabase
         .from('wishlists')
-        .update({
-          user_ig_handle: userHandle,
-          status: wishlistDraft.status,
-          notes: wishlistDraft.notes.trim(),
-          total_price: totalPrice,
-        })
+        .update(wishlistUpdate)
         .eq('id', editingWishlist.id);
+
+      if (wishlistError && isMissingColumnError(wishlistError, 'notes')) {
+        notesColumnUnavailable = true;
+        const wishlistUpdateWithoutNotes = {
+          user_ig_handle: wishlistUpdate.user_ig_handle,
+          status: wishlistUpdate.status,
+          total_price: wishlistUpdate.total_price,
+        };
+        const retry = await supabase
+          .from('wishlists')
+          .update(wishlistUpdateWithoutNotes)
+          .eq('id', editingWishlist.id);
+
+        wishlistError = retry.error;
+      }
 
       if (wishlistError) throw wishlistError;
 
@@ -658,11 +677,15 @@ export default function AdminDashboard() {
         notes: wishlistDraft.notes.trim(),
         total_price: totalPrice,
       } : current);
-      setStatusMessage('Order updated.');
+      setStatusMessage(
+        notesColumnUnavailable
+          ? 'Order updated. Notes were not saved because the database is missing the notes column.'
+          : 'Order updated.',
+      );
       await fetchWishlists();
       return true;
     } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : String(err);
+      const errMsg = formatAdminError(err);
       setStatusMessage(`Error saving order: ${errMsg}`);
       return false;
     } finally {
@@ -717,7 +740,7 @@ export default function AdminDashboard() {
       setStatusMessage(download ? 'New order image downloaded.' : 'New order image preview generated.');
       return true;
     } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : String(err);
+      const errMsg = formatAdminError(err);
       setStatusMessage(`Error generating order image: ${errMsg}`);
       return false;
     } finally {
