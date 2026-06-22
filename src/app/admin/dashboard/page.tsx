@@ -112,6 +112,7 @@ export default function AdminDashboard() {
   const [statusMessage, setStatusMessage] = useState('');
   const router = useRouter();
   const [searchTerm, setSearchTerm] = useState('');
+  const [wishlistSearchTerm, setWishlistSearchTerm] = useState('');
   const [wishlistCardSearch, setWishlistCardSearch] = useState('');
   const wishlistReceiptRef = useRef<HTMLDivElement>(null);
 
@@ -129,6 +130,31 @@ export default function AdminDashboard() {
         card.member_name?.toLowerCase().includes(term)
     );
   }, [cards, searchTerm]);
+
+  const filteredWishlists = useMemo(() => {
+    const term = wishlistSearchTerm.toLowerCase().trim();
+    if (!term) return wishlists;
+    const termWithoutAt = term.replace(/^@/, '');
+
+    return wishlists.filter(wishlist => {
+      const handle = String(wishlist.user_ig_handle || '').toLowerCase();
+      const handleWithoutAt = handle.replace(/^@/, '');
+      const notes = String(wishlist.notes || '').toLowerCase();
+      const status = String(wishlist.status || '').toLowerCase();
+      const itemText = (wishlist.wishlist_items ?? [])
+        .map(item => item.cards?.title || '')
+        .join(' ')
+        .toLowerCase();
+
+      return (
+        handle.includes(term) ||
+        handleWithoutAt.includes(termWithoutAt) ||
+        notes.includes(term) ||
+        status.includes(term) ||
+        itemText.includes(term)
+      );
+    });
+  }, [wishlistSearchTerm, wishlists]);
 
   const wishlistCardSearchTerm = wishlistCardSearch.trim().toLowerCase();
   const wishlistCardSearchResults = useMemo(() => {
@@ -1610,20 +1636,50 @@ export default function AdminDashboard() {
               </div>
             </header>
 
+            <div className={styles.searchBar}>
+              <input
+                type="search"
+                value={wishlistSearchTerm}
+                onChange={event => {
+                  setWishlistSearchTerm(event.target.value);
+                  setSelectedWishlistIds([]);
+                }}
+                placeholder="Search wishlists by Instagram handle..."
+                className={styles.searchInput}
+              />
+              {wishlistSearchTerm && (
+                <button
+                  className={styles.clearSearchBtn}
+                  type="button"
+                  onClick={() => {
+                    setWishlistSearchTerm('');
+                    setSelectedWishlistIds([]);
+                  }}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+
             <div className={styles.inventoryList}>
-              {wishlists.length > 0 ? (
+              {filteredWishlists.length > 0 ? (
                 <table className={styles.table}>
                   <thead>
                     <tr>
                       <th style={{ width: '45px', textAlign: 'center' }}>
                         <input
                           type="checkbox"
-                          checked={wishlists.length > 0 && selectedWishlistIds.length === wishlists.length}
+                          checked={
+                            filteredWishlists.length > 0 &&
+                            filteredWishlists.every(wishlist => selectedWishlistIds.includes(wishlist.id))
+                          }
                           onChange={(e) => {
                             if (e.target.checked) {
-                              setSelectedWishlistIds(wishlists.map(w => w.id));
+                              setSelectedWishlistIds(filteredWishlists.map(w => w.id));
                             } else {
-                              setSelectedWishlistIds([]);
+                              setSelectedWishlistIds(current =>
+                                current.filter(id => !filteredWishlists.some(wishlist => wishlist.id === id)),
+                              );
                             }
                           }}
                         />
@@ -1637,7 +1693,7 @@ export default function AdminDashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {wishlists.map(wishlist => (
+                    {filteredWishlists.map(wishlist => (
                       <tr key={wishlist.id}>
                         <td style={{ textAlign: 'center' }}>
                           <input
@@ -1691,7 +1747,7 @@ export default function AdminDashboard() {
                 </table>
               ) : (
                 <div className={styles.placeholder}>
-                  <p>No wishlists submitted yet.</p>
+                  <p>{wishlists.length > 0 ? 'No wishlists match this search.' : 'No wishlists submitted yet.'}</p>
                 </div>
               )}
             </div>
