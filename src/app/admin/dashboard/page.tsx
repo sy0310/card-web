@@ -112,6 +112,7 @@ export default function AdminDashboard() {
   const [statusMessage, setStatusMessage] = useState('');
   const router = useRouter();
   const [searchTerm, setSearchTerm] = useState('');
+  const [wishlistCardSearch, setWishlistCardSearch] = useState('');
   const wishlistReceiptRef = useRef<HTMLDivElement>(null);
 
   const cardsById = useMemo(() => new Map(cards.map(card => [card.id, card])), [cards]);
@@ -128,6 +129,26 @@ export default function AdminDashboard() {
         card.member_name?.toLowerCase().includes(term)
     );
   }, [cards, searchTerm]);
+
+  const wishlistCardSearchTerm = wishlistCardSearch.trim().toLowerCase();
+  const wishlistCardSearchResults = useMemo(() => {
+    const matchesSearch = (card: AdminCard) => {
+      if (!wishlistCardSearchTerm) return true;
+
+      return [
+        card.title,
+        card.group_name,
+        card.member_name,
+        card.album_era,
+        card.pob_name,
+        card.rarity,
+      ].some(value => String(value ?? '').toLowerCase().includes(wishlistCardSearchTerm));
+    };
+
+    return cards
+      .filter(matchesSearch)
+      .slice(0, wishlistCardSearchTerm ? 12 : 8);
+  }, [cards, wishlistCardSearchTerm]);
 
   const wishlistDraftTotal = useMemo(() => {
     if (!wishlistDraft) return 0;
@@ -561,6 +582,7 @@ export default function AdminDashboard() {
     });
     setWishlistImagePreview(null);
     setWishlistImageSignature('');
+    setWishlistCardSearch('');
     setStatusMessage('');
   };
 
@@ -571,6 +593,7 @@ export default function AdminDashboard() {
     setGeneratingWishlistImage(false);
     setWishlistImagePreview(null);
     setWishlistImageSignature('');
+    setWishlistCardSearch('');
   };
 
   const updateWishlistDraftItem = (
@@ -583,18 +606,27 @@ export default function AdminDashboard() {
     } : current);
   };
 
-  const addWishlistDraftItem = () => {
-    const firstCardId = cards[0]?.id || '';
+  const addWishlistDraftItem = (cardId?: string) => {
+    const targetCardId = cardId || wishlistCardSearchResults[0]?.id || cards[0]?.id || '';
+    if (!targetCardId) {
+      setStatusMessage('No cards are available to add.');
+      return;
+    }
+
     setWishlistDraft(current => current ? {
       ...current,
-      items: [
-        ...current.items,
-        {
-          key: createWishlistDraftKey(),
-          card_id: firstCardId,
-          quantity: '1',
-        },
-      ],
+      items: current.items.some(item => item.card_id === targetCardId)
+        ? current.items.map(item => item.card_id === targetCardId
+          ? { ...item, quantity: String(parseWishlistQuantity(item.quantity) + 1) }
+          : item)
+        : [
+            ...current.items,
+            {
+              key: createWishlistDraftKey(),
+              card_id: targetCardId,
+              quantity: '1',
+            },
+          ],
     } : current);
   };
 
@@ -1205,14 +1237,67 @@ export default function AdminDashboard() {
                 <div className={`${styles.field} ${styles.wideField}`}>
                   <div className={styles.orderItemsHeader}>
                     <span>Order Items</span>
-                    <button type="button" className={styles.secondaryBtn} onClick={addWishlistDraftItem}>
-                      Add item
+                    <button type="button" className={styles.secondaryBtn} onClick={() => addWishlistDraftItem()}>
+                      Add top result
                     </button>
+                  </div>
+
+                  <div className={styles.orderCardSearch}>
+                    <div className={styles.orderCardSearchBar}>
+                      <input
+                        type="search"
+                        value={wishlistCardSearch}
+                        onChange={event => setWishlistCardSearch(event.target.value)}
+                        placeholder="Search cards by title, group, member, era or POB..."
+                      />
+                      {wishlistCardSearch && (
+                        <button
+                          type="button"
+                          className={styles.secondaryBtn}
+                          onClick={() => setWishlistCardSearch('')}
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                    <div className={styles.orderCardResults}>
+                      {wishlistCardSearchResults.length > 0 ? wishlistCardSearchResults.map(card => (
+                        <button
+                          key={card.id}
+                          type="button"
+                          className={styles.orderCardResult}
+                          onClick={() => addWishlistDraftItem(card.id)}
+                        >
+                          {card.image_url ? (
+                            <img src={card.image_url} alt="" className={styles.microImg} />
+                          ) : (
+                            <div className={styles.microImg} />
+                          )}
+                          <span>
+                            <strong>{card.title || 'Untitled card'}</strong>
+                            <small>
+                              {[card.group_name, card.member_name, card.album_era, card.pob_name]
+                                .filter(Boolean)
+                                .join(' · ') || 'No metadata'}
+                            </small>
+                          </span>
+                          <em>${Number(card.price || 0).toFixed(2)}</em>
+                        </button>
+                      )) : (
+                        <p className={styles.emptyText}>No cards match this search.</p>
+                      )}
+                    </div>
                   </div>
 
                   <div className={styles.orderItemsEditor}>
                     {wishlistDraft.items.length > 0 ? wishlistDraft.items.map(item => {
                       const selectedCard = cardsById.get(item.card_id);
+                      const cardOptions = wishlistCardSearchTerm
+                        ? [
+                            ...(selectedCard ? [selectedCard] : []),
+                            ...wishlistCardSearchResults.filter(card => card.id !== selectedCard?.id),
+                          ]
+                        : cards;
                       return (
                         <div key={item.key} className={styles.orderItemEditorRow}>
                           {selectedCard?.image_url ? (
@@ -1225,7 +1310,7 @@ export default function AdminDashboard() {
                             onChange={event => updateWishlistDraftItem(item.key, { card_id: event.target.value })}
                           >
                             <option value="">Select a card</option>
-                            {cards.map(card => (
+                            {cardOptions.map(card => (
                               <option key={card.id} value={card.id}>
                                 {card.title} - ${Number(card.price || 0).toFixed(2)}
                               </option>

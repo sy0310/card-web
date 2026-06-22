@@ -596,6 +596,96 @@
   text-transform: uppercase;
 }
 
+.orderCardSearch {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.75rem;
+  border: 1px solid rgba(125, 83, 222, 0.12);
+  border-radius: 8px;
+  background: rgba(125, 83, 222, 0.045);
+}
+
+.orderCardSearchBar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.55rem;
+}
+
+.orderCardSearchBar input {
+  min-width: 0;
+  border: 1px solid rgba(125, 83, 222, 0.18);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--foreground);
+  font: inherit;
+  padding: 0.72rem 0.8rem;
+  outline: none;
+}
+
+.orderCardSearchBar input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(125, 83, 222, 0.12);
+}
+
+.orderCardResults {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.orderCardResult {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.55rem;
+  border: 1px solid rgba(125, 83, 222, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.64);
+  color: var(--foreground);
+  text-align: left;
+  transition: border-color 0.2s ease, background 0.2s ease, transform 0.15s ease;
+}
+
+.orderCardResult:hover {
+  border-color: rgba(125, 83, 222, 0.32);
+  background: rgba(255, 255, 255, 0.86);
+  transform: translateY(-1px);
+}
+
+.orderCardResult span {
+  min-width: 0;
+  display: grid;
+  gap: 0.12rem;
+}
+
+.orderCardResult strong,
+.orderCardResult small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.orderCardResult strong {
+  font-size: 0.8rem;
+}
+
+.orderCardResult small {
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 650;
+}
+
+.orderCardResult em {
+  font-style: normal;
+  font-size: 0.74rem;
+  font-weight: 850;
+  color: var(--primary);
+}
+
 .orderItemsEditor {
   display: grid;
   gap: 0.65rem;
@@ -811,9 +901,18 @@
     grid-template-columns: 32px minmax(0, 1fr);
   }
 
+  .orderCardSearchBar,
+  .orderCardResults {
+    grid-template-columns: 1fr;
+  }
+
   .orderItemEditorRow input,
   .orderItemEditorRow button {
     grid-column: 2;
+  }
+
+  .orderCardResult {
+    grid-template-columns: 28px minmax(0, 1fr) auto;
   }
 }
 
