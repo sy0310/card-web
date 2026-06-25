@@ -8,7 +8,7 @@ type ImageWaitStatus = 'loaded' | 'failed';
 
 const DIRECT_IMAGE_PROTOCOLS = /^(data|blob):/i;
 
-export function buildReceiptImageSrc(imageUrl: string, cacheKey: string | number = Date.now()) {
+export function buildReceiptImageSrc(imageUrl: string, cacheKey: string | number = 'v1') {
   const src = imageUrl.trim();
   const version = String(cacheKey);
 

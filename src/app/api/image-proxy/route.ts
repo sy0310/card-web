@@ -13,7 +13,6 @@ export async function GET(request: NextRequest) {
 
   try {
     const upstream = await fetch(parsed.url, {
-      cache: 'no-store',
       headers: {
         accept: 'image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8',
       },
@@ -35,7 +34,7 @@ export async function GET(request: NextRequest) {
       status: 200,
       headers: {
         'content-type': contentType || 'image/jpeg',
-        'cache-control': 'no-store, max-age=0',
+        'cache-control': 'public, max-age=86400, s-maxage=86400',
       },
     });
   } catch {

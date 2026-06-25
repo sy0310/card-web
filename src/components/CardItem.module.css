@@ -23,15 +23,6 @@
   justify-content: center;
 }
 
-.blurBackground {
-  position: absolute;
-  inset: -10px;
-  background-size: cover;
-  background-position: center;
-  filter: blur(16px) brightness(0.9);
-  opacity: 0.55;
-  pointer-events: none;
-}
 
 .image {
   position: relative;
