@@ -31,7 +31,7 @@ export default function Home() {
 
   const safeSiteTitle = typeof siteTitle === 'string' && siteTitle.trim() ? siteTitle : 'K-POP CARD';
   const siteTitleWords = useMemo(() => {
-    return safeSiteTitle.split(' ');
+    return safeSiteTitle.split(/\s+/).filter(Boolean);
   }, [safeSiteTitle]);
 
   useEffect(() => {

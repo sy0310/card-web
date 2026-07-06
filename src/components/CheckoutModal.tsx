@@ -70,7 +70,7 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
 
       // 2. Log Items
       const wishlistItems = safeItems.flatMap(item => {
-        if (!item) return [];
+        if (!item || !item.id) return [];
         const qty = Number.isFinite(Number(item.quantity)) ? Number(item.quantity) : 1;
         return Array.from({ length: Math.max(1, Math.floor(qty)) }, () => ({
           wishlist_id: wishlistData.id,

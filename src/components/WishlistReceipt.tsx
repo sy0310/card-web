@@ -48,7 +48,7 @@ export default function WishlistReceipt({
 
       <div className={styles.summaryItems}>
         {safeItems.map(item => {
-          if (!item) return null;
+          if (!item || !item.id) return null;
           const imageUrl = item.image_url || '';
           const title = item.title || 'Untitled';
           const groupName = item.group_name || '';

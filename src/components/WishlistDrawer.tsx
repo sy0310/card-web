@@ -36,7 +36,7 @@ export default function WishlistDrawer({ isOpen, onClose }: { isOpen: boolean, o
             </div>
           ) : (
             safeItems.map(item => {
-              if (!item) return null;
+              if (!item || !item.id) return null;
               const itemPrice = Number.isFinite(Number(item.price)) ? Number(item.price) : 0;
               const itemQuantity = Number.isFinite(Number(item.quantity)) ? Number(item.quantity) : 1;
               return (
