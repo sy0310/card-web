@@ -120,21 +120,25 @@ export default function AdminDashboard() {
 
   const filteredCards = useMemo(() => {
     if (!searchTerm.trim()) return cards;
-    const term = searchTerm.toLowerCase().trim();
-    return cards.filter(
-      card =>
-        card.title?.toLowerCase().includes(term) ||
-        card.group_name?.toLowerCase().includes(term) ||
-        card.pob_name?.toLowerCase().includes(term) ||
-        card.album_era?.toLowerCase().includes(term) ||
-        card.member_name?.toLowerCase().includes(term)
+    const terms = searchTerm.toLowerCase().trim().split(/\s+/).filter(Boolean);
+    if (terms.length === 0) return cards;
+    
+    return cards.filter(card =>
+      terms.every(term =>
+        (card.title || '').toLowerCase().includes(term) ||
+        (card.group_name || '').toLowerCase().includes(term) ||
+        (card.pob_name || '').toLowerCase().includes(term) ||
+        (card.album_era || '').toLowerCase().includes(term) ||
+        (card.member_name || '').toLowerCase().includes(term)
+      )
     );
   }, [cards, searchTerm]);
 
   const filteredWishlists = useMemo(() => {
     const term = wishlistSearchTerm.toLowerCase().trim();
     if (!term) return wishlists;
-    const termWithoutAt = term.replace(/^@/, '');
+    const terms = term.split(/\s+/).filter(Boolean);
+    if (terms.length === 0) return wishlists;
 
     return wishlists.filter(wishlist => {
       const handle = String(wishlist.user_ig_handle || '').toLowerCase();
@@ -146,29 +150,38 @@ export default function AdminDashboard() {
         .join(' ')
         .toLowerCase();
 
-      return (
-        handle.includes(term) ||
-        handleWithoutAt.includes(termWithoutAt) ||
-        notes.includes(term) ||
-        status.includes(term) ||
-        itemText.includes(term)
-      );
+      return terms.every(t => {
+        const tWithoutAt = t.replace(/^@/, '');
+        return (
+          handle.includes(t) ||
+          handleWithoutAt.includes(tWithoutAt) ||
+          notes.includes(t) ||
+          status.includes(t) ||
+          itemText.includes(t)
+        );
+      });
     });
   }, [wishlistSearchTerm, wishlists]);
 
   const wishlistCardSearchTerm = wishlistCardSearch.trim().toLowerCase();
   const wishlistCardSearchResults = useMemo(() => {
-    const matchesSearch = (card: AdminCard) => {
-      if (!wishlistCardSearchTerm) return true;
+    const terms = wishlistCardSearchTerm.split(/\s+/).filter(Boolean);
 
-      return [
+    const matchesSearch = (card: AdminCard) => {
+      if (terms.length === 0) return true;
+
+      const fields = [
         card.title,
         card.group_name,
         card.member_name,
         card.album_era,
         card.pob_name,
         card.rarity,
-      ].some(value => String(value ?? '').toLowerCase().includes(wishlistCardSearchTerm));
+      ].map(value => String(value ?? '').toLowerCase());
+
+      return terms.every(term => 
+        fields.some(field => field.includes(term))
+      );
     };
 
     return cards

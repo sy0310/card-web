@@ -90,24 +90,39 @@ export default function Home() {
     let result = [...cards];
     
     if (activeCategory !== 'All') {
-      result = result.filter(card => card.group_name === activeCategory);
+      result = result.filter(
+        card => (card.group_name || '').toLowerCase() === activeCategory.toLowerCase()
+      );
     }
     
     if (search) {
-      const s = search.toLowerCase();
-      result = result.filter(card => 
-        card.title.toLowerCase().includes(s) || 
-        card.group_name.toLowerCase().includes(s)
-      );
+      const terms = search.toLowerCase().split(/\s+/).filter(Boolean);
+      if (terms.length > 0) {
+        result = result.filter(card =>
+          terms.every(term =>
+            (card.title || '').toLowerCase().includes(term) || 
+            (card.group_name || '').toLowerCase().includes(term)
+          )
+        );
+      }
     }
     
     return result;
   }, [activeCategory, cards, search]);
 
-  const categories = useMemo(
-    () => ['All', ...Array.from(new Set(cards.map(c => c.group_name))).filter(Boolean)],
-    [cards],
-  );
+  const categories = useMemo(() => {
+    const seen = new Set<string>();
+    const uniqueCategories: string[] = [];
+    for (const card of cards) {
+      if (!card.group_name) continue;
+      const lower = card.group_name.toLowerCase();
+      if (!seen.has(lower)) {
+        seen.add(lower);
+        uniqueCategories.push(card.group_name);
+      }
+    }
+    return ['All', ...uniqueCategories];
+  }, [cards]);
 
   const visibleCategories = useMemo(() => {
     if (isExpanded || categories.length <= visibleLimit) {
