@@ -31,49 +31,60 @@ export default function WishlistReceipt({
   totalPrice,
   cacheKey = 'receipt',
 }: WishlistReceiptProps) {
+  const safeItems = Array.isArray(items) ? items : [];
+  const safeTotalPrice = Number.isFinite(Number(totalPrice)) ? Number(totalPrice) : 0;
+
   return (
     <div className={styles.summaryTemplate}>
       <div className={styles.summaryHeader}>
-        <h1>{settings.site_title}</h1>
+        <h1>{settings?.site_title || 'K-POP CARD'}</h1>
         <p>WISHLIST REQUEST</p>
       </div>
 
       <div className={styles.summaryUser}>
         <span>Instagram:</span>
-        <strong>{userIgHandle}</strong>
+        <strong>{userIgHandle || ''}</strong>
       </div>
 
       <div className={styles.summaryItems}>
-        {items.map(item => (
-          <div key={item.id} className={styles.summaryItem}>
-            <div className={styles.summaryThumb}>
-              <img
-                src={buildReceiptImageSrc(item.image_url, `${cacheKey}-${item.id}-${item.quantity}`)}
-                alt={item.title}
-                loading="eager"
-                decoding="sync"
-              />
+        {safeItems.map(item => {
+          if (!item) return null;
+          const imageUrl = item.image_url || '';
+          const title = item.title || 'Untitled';
+          const groupName = item.group_name || '';
+          const quantity = Number.isFinite(Number(item.quantity)) ? Number(item.quantity) : 1;
+          const price = Number.isFinite(Number(item.price)) ? Number(item.price) : 0;
+          return (
+            <div key={item.id} className={styles.summaryItem}>
+              <div className={styles.summaryThumb}>
+                <img
+                  src={buildReceiptImageSrc(imageUrl, `${cacheKey}-${item.id}-${quantity}`)}
+                  alt={title}
+                  loading="eager"
+                  decoding="sync"
+                />
+              </div>
+              <div className={styles.summaryItemInfo}>
+                <h4>{title}</h4>
+                <p>{groupName} {quantity > 1 ? ` (x${quantity})` : ''}</p>
+              </div>
+              <div className={styles.summaryItemPrice}>
+                ${(price * quantity).toFixed(2)}
+              </div>
             </div>
-            <div className={styles.summaryItemInfo}>
-              <h4>{item.title}</h4>
-              <p>{item.group_name} {item.quantity > 1 ? ` (x${item.quantity})` : ''}</p>
-            </div>
-            <div className={styles.summaryItemPrice}>
-              ${(Number(item.price) * item.quantity).toFixed(2)}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className={styles.summaryFooter}>
         <div className={styles.summaryTotal}>
           <span>TOTAL ESTIMATED</span>
-          <h2>${Number(totalPrice).toFixed(2)}</h2>
+          <h2>${safeTotalPrice.toFixed(2)}</h2>
         </div>
         <div className={styles.summaryNextStep}>
           <span>Next step</span>
-          <p>{settings.wishlist_footer_note}</p>
-          <strong>{settings.official_ig_handle}</strong>
+          <p>{settings?.wishlist_footer_note || ''}</p>
+          <strong>{settings?.official_ig_handle || ''}</strong>
         </div>
       </div>
     </div>

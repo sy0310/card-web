@@ -7,6 +7,8 @@ import CheckoutModal from './CheckoutModal';
 
 export default function WishlistDrawer({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) {
   const { items, removeFromWishlist, updateQuantity, totalPrice } = useWishlist();
+  const safeItems = Array.isArray(items) ? items : [];
+  const safeTotalPrice = Number.isFinite(Number(totalPrice)) ? Number(totalPrice) : 0;
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
 
   if (!isOpen) return null;
@@ -27,43 +29,48 @@ export default function WishlistDrawer({ isOpen, onClose }: { isOpen: boolean, o
         </header>
 
         <div className={styles.itemsList}>
-          {items.length === 0 ? (
+          {safeItems.length === 0 ? (
             <div className={styles.empty}>
               <p>Your wishlist is empty</p>
               <span>Add some cards to get started!</span>
             </div>
           ) : (
-            items.map(item => (
-              <div key={item.id} className={styles.item}>
-                <img src={item.image_url} alt="" className={styles.itemImg} />
-                <div className={styles.itemInfo}>
-                  <h4>{item.title}</h4>
-                  <p>{item.group_name}</p>
-                  <div className={styles.priceAndQty}>
-                    <span className={styles.itemPrice}>${(Number(item.price) * item.quantity).toFixed(2)}</span>
-                    <div className={styles.qtyControl}>
-                      <button onClick={() => updateQuantity(item.id, item.quantity - 1)}>-</button>
-                      <span>{item.quantity}</span>
-                      <button onClick={() => updateQuantity(item.id, item.quantity + 1)}>+</button>
+            safeItems.map(item => {
+              if (!item) return null;
+              const itemPrice = Number.isFinite(Number(item.price)) ? Number(item.price) : 0;
+              const itemQuantity = Number.isFinite(Number(item.quantity)) ? Number(item.quantity) : 1;
+              return (
+                <div key={item.id} className={styles.item}>
+                  <img src={item.image_url || ''} alt={item.title || ''} className={styles.itemImg} />
+                  <div className={styles.itemInfo}>
+                    <h4>{item.title || 'Untitled'}</h4>
+                    <p>{item.group_name || ''}</p>
+                    <div className={styles.priceAndQty}>
+                      <span className={styles.itemPrice}>${(itemPrice * itemQuantity).toFixed(2)}</span>
+                      <div className={styles.qtyControl}>
+                        <button onClick={() => updateQuantity(item.id, itemQuantity - 1)}>-</button>
+                        <span>{itemQuantity}</span>
+                        <button onClick={() => updateQuantity(item.id, itemQuantity + 1)}>+</button>
+                      </div>
                     </div>
                   </div>
+                  <button 
+                    onClick={() => removeFromWishlist(item.id)}
+                    className={styles.removeBtn}
+                  >
+                    Remove
+                  </button>
                 </div>
-                <button 
-                  onClick={() => removeFromWishlist(item.id)}
-                  className={styles.removeBtn}
-                >
-                  Remove
-                </button>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
 
-        {items.length > 0 && (
+        {safeItems.length > 0 && (
           <footer className={styles.footer}>
             <div className={styles.total}>
               <span>Total Estimation</span>
-              <span className={styles.totalAmount}>${Number(totalPrice).toFixed(2)}</span>
+              <span className={styles.totalAmount}>${safeTotalPrice.toFixed(2)}</span>
             </div>
             <button 
               className={styles.checkoutBtn}

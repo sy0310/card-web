@@ -29,6 +29,11 @@ export default function Home() {
   
   const { items } = useWishlist();
 
+  const safeSiteTitle = typeof siteTitle === 'string' && siteTitle.trim() ? siteTitle : 'K-POP CARD';
+  const siteTitleWords = useMemo(() => {
+    return safeSiteTitle.split(' ');
+  }, [safeSiteTitle]);
+
   useEffect(() => {
     let isMounted = true;
 
@@ -51,7 +56,7 @@ export default function Home() {
           break;
         }
 
-        if (!data || data.length === 0) {
+        if (!Array.isArray(data) || data.length === 0) {
           hasMore = false;
           break;
         }
@@ -78,7 +83,9 @@ export default function Home() {
       .eq('key', 'site_title')
       .single()
       .then(({ data }) => {
-        if (isMounted && data) setSiteTitle(data.value);
+        if (isMounted && data && typeof data.value === 'string') {
+          setSiteTitle(data.value);
+        }
       });
 
     return () => {
@@ -87,7 +94,7 @@ export default function Home() {
   }, []);
 
   const filteredCards = useMemo(() => {
-    let result = [...cards];
+    let result = Array.isArray(cards) ? [...cards] : [];
     
     if (activeCategory !== 'All') {
       result = result.filter(
@@ -111,10 +118,11 @@ export default function Home() {
   }, [activeCategory, cards, search]);
 
   const categories = useMemo(() => {
+    const safeCards = Array.isArray(cards) ? cards : [];
     const seen = new Set<string>();
     const uniqueCategories: string[] = [];
-    for (const card of cards) {
-      if (!card.group_name) continue;
+    for (const card of safeCards) {
+      if (!card || !card.group_name) continue;
       const lower = card.group_name.toLowerCase();
       if (!seen.has(lower)) {
         seen.add(lower);
@@ -125,10 +133,11 @@ export default function Home() {
   }, [cards]);
 
   const visibleCategories = useMemo(() => {
-    if (isExpanded || categories.length <= visibleLimit) {
-      return categories;
+    const safeCategories = Array.isArray(categories) ? categories : ['All'];
+    if (isExpanded || safeCategories.length <= visibleLimit) {
+      return safeCategories;
     }
-    return categories.slice(0, visibleLimit);
+    return safeCategories.slice(0, visibleLimit);
   }, [categories, isExpanded]);
 
   return (
@@ -138,13 +147,13 @@ export default function Home() {
       <header className={styles.header}>
         <div className="glass" style={{ padding: '0.75rem 1.5rem', borderRadius: '100px', display: 'flex', gap: '2rem', alignItems: 'center' }}>
           <h1 className={styles.logo}>
-            {siteTitle.split(' ').map((word, i) => (
-              <span key={i} style={i === siteTitle.split(' ').length - 1 ? { color: 'var(--primary)' } : {}}>{word} </span>
+            {siteTitleWords.map((word, i) => (
+              <span key={i} style={i === siteTitleWords.length - 1 ? { color: 'var(--primary)' } : {}}>{word} </span>
             ))}
           </h1>
           <nav className={styles.topNav}>
             <button onClick={() => setIsWishlistOpen(true)} className={styles.wishlistTrigger}>
-              Wishlist ({items.length})
+              Wishlist ({Array.isArray(items) ? items.length : 0})
             </button>
           </nav>
         </div>
@@ -164,7 +173,7 @@ export default function Home() {
       </section>
 
       <div className={styles.filterContainer}>
-        {visibleCategories.map(cat => (
+        {(Array.isArray(visibleCategories) ? visibleCategories : []).map(cat => (
           <button 
             key={cat}
             className={`${styles.filterBtn} ${activeCategory === cat ? styles.activeFilter : ''}`}
@@ -173,12 +182,12 @@ export default function Home() {
             {cat}
           </button>
         ))}
-        {categories.length > visibleLimit && (
+        {(Array.isArray(categories) ? categories.length : 0) > visibleLimit && (
           <button 
             className={`${styles.filterBtn} ${styles.moreBtn}`}
             onClick={() => setIsExpanded(!isExpanded)}
           >
-            {isExpanded ? 'Less ↑' : `More (${categories.length - visibleLimit}) ↓`}
+            {isExpanded ? 'Less ↑' : `More (${(Array.isArray(categories) ? categories.length : 0) - visibleLimit}) ↓`}
           </button>
         )}
       </div>
@@ -188,9 +197,9 @@ export default function Home() {
           <div className={styles.fullWidth}>
             <p className={styles.loadingText}>Fetching collection...</p>
           </div>
-        ) : filteredCards.length > 0 ? (
-          filteredCards.map(card => (
-            <CardItem key={card.id} card={card} />
+        ) : (Array.isArray(filteredCards) && filteredCards.length > 0) ? (
+          (Array.isArray(filteredCards) ? filteredCards : []).map(card => (
+            card && <CardItem key={card.id} card={card} />
           ))
         ) : (
           <div className={styles.fullWidth}>

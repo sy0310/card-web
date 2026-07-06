@@ -10,6 +10,8 @@ import styles from './CheckoutModal.module.css';
 
 export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) {
   const { items, totalPrice, clearWishlist } = useWishlist();
+  const safeItems = Array.isArray(items) ? items : [];
+  const safeTotalPrice = Number.isFinite(Number(totalPrice)) ? Number(totalPrice) : 0;
   const [igHandle, setIgHandle] = useState('');
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState(1); // 1: Input, 2: Preview & Download
@@ -29,8 +31,13 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
       .from('site_settings')
       .select('*')
       .then(({ data }) => {
-        if (!isMounted || !data) return;
-        const s = data.reduce<Record<string, string>>((acc, curr) => ({ ...acc, [curr.key]: curr.value }), {});
+        if (!isMounted || !Array.isArray(data)) return;
+        const s = data.reduce<Record<string, string>>((acc, curr) => {
+          if (curr && typeof curr.key === 'string' && typeof curr.value === 'string') {
+            acc[curr.key] = curr.value;
+          }
+          return acc;
+        }, {});
         setSettings(prev => ({ ...prev, ...s }));
       });
 
@@ -41,6 +48,10 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
 
   const handleGenerate = async () => {
     if (!igHandle) return alert('Please enter your Instagram handle');
+    if (safeItems.length === 0) {
+      alert('Wishlist is empty');
+      return;
+    }
     setLoading(true);
 
     try {
@@ -49,7 +60,7 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
         .from('wishlists')
         .insert({
           user_ig_handle: igHandle,
-          total_price: totalPrice,
+          total_price: safeTotalPrice,
           status: 'pending'
         })
         .select()
@@ -58,12 +69,14 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
       if (wishlistError) throw wishlistError;
 
       // 2. Log Items
-      const wishlistItems = items.flatMap(item =>
-        Array.from({ length: Math.max(1, Math.floor(item.quantity)) }, () => ({
+      const wishlistItems = safeItems.flatMap(item => {
+        if (!item) return [];
+        const qty = Number.isFinite(Number(item.quantity)) ? Number(item.quantity) : 1;
+        return Array.from({ length: Math.max(1, Math.floor(qty)) }, () => ({
           wishlist_id: wishlistData.id,
           card_id: item.id,
-        })),
-      );
+        }));
+      });
 
       const { error: itemsError } = await supabase
         .from('wishlist_items')
@@ -159,8 +172,8 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
             <WishlistReceipt
               settings={settings}
               userIgHandle={igHandle}
-              items={items}
-              totalPrice={totalPrice}
+              items={safeItems}
+              totalPrice={safeTotalPrice}
             />
           </div>
         </div>
