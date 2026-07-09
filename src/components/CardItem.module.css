@@ -100,6 +100,7 @@
   justify-content: space-between;
   align-items: center;
   margin-top: auto;
+  gap: 0.75rem;
 }
 
 .price {
@@ -127,6 +128,45 @@
 .addBtn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+.optionPicker {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.75rem;
+}
+
+.optionBtn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  min-height: 40px;
+  padding: 0.58rem 0.7rem;
+  border: 1px solid rgba(192, 160, 255, 0.28);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.5);
+  color: var(--foreground);
+  font-size: 0.82rem;
+  transition: all 0.2s ease;
+}
+
+.optionBtn:hover {
+  border-color: var(--primary);
+  background: rgba(192, 160, 255, 0.14);
+}
+
+.optionBtn span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.optionBtn strong {
+  flex-shrink: 0;
+  color: var(--primary);
 }
 
 .pobBadge {

@@ -6,6 +6,11 @@ import styles from "./page.module.css";
 import CardItem from '@/components/CardItem';
 import WishlistDrawer from '@/components/WishlistDrawer';
 import { useWishlist } from '@/context/WishlistContext';
+import {
+  createFallbackPurchaseOption,
+  normalizePurchaseOption,
+  type PurchaseOption,
+} from '@/lib/purchaseOptions';
 
 type StorefrontCard = {
   id: string;
@@ -15,6 +20,13 @@ type StorefrontCard = {
   group_name: string;
   inventory_count: number;
   rarity?: string;
+  pob_name?: string;
+  purchase_options: PurchaseOption[];
+};
+
+type StorefrontCardRow = Omit<StorefrontCard, 'price' | 'inventory_count' | 'purchase_options'> & {
+  price: number | string | null;
+  inventory_count: number | string | null;
 };
 
 export default function Home() {
@@ -61,12 +73,61 @@ export default function Home() {
           break;
         }
 
-        allCards = [...allCards, ...(data as StorefrontCard[])];
+        const cardsBatch = (data as StorefrontCardRow[]).map(card => ({
+          ...card,
+          price: Number.isFinite(Number(card.price)) ? Number(card.price) : 0,
+          inventory_count: Number.isFinite(Number(card.inventory_count))
+            ? Number(card.inventory_count)
+            : 0,
+          purchase_options: [],
+        }));
+
+        allCards = [...allCards, ...cardsBatch];
         if (data.length < limit) {
           hasMore = false;
         } else {
           offset += limit;
         }
+      }
+
+      if (allCards.length > 0) {
+        const optionsByCardId = new Map<string, PurchaseOption[]>();
+        const cardIds = allCards.map(card => card.id);
+        const optionIdBatchSize = 500;
+
+        for (let index = 0; index < cardIds.length; index += optionIdBatchSize) {
+          const cardIdBatch = cardIds.slice(index, index + optionIdBatchSize);
+          const { data: optionsData, error: optionsError } = await supabase
+            .from('card_purchase_options')
+            .select('id, card_id, label, price, min_quantity, max_quantity, is_default, is_active, sort_order')
+            .in('card_id', cardIdBatch)
+            .eq('is_active', true)
+            .order('sort_order', { ascending: true });
+
+          if (optionsError) {
+            console.error('Error loading purchase options:', optionsError.message);
+            break;
+          }
+
+          for (const optionRow of optionsData ?? []) {
+            const option = normalizePurchaseOption(optionRow);
+            if (!option.card_id) continue;
+
+            const currentOptions = optionsByCardId.get(option.card_id) ?? [];
+            currentOptions.push(option);
+            optionsByCardId.set(option.card_id, currentOptions);
+          }
+        }
+
+        allCards = allCards.map(card => {
+          const activeOptions = optionsByCardId.get(card.id) ?? [];
+          return {
+            ...card,
+            purchase_options: activeOptions.length > 0
+              ? activeOptions
+              : [createFallbackPurchaseOption(card)],
+          };
+        });
       }
 
       if (isMounted) {

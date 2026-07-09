@@ -1,6 +1,12 @@
 'use client';
 
+import { useState } from 'react';
 import { useWishlist } from '@/context/WishlistContext';
+import {
+  getActivePurchaseOptions,
+  getDefaultPurchaseOption,
+  type PurchaseOption,
+} from '@/lib/purchaseOptions';
 import styles from './CardItem.module.css';
 
 type CardProps = {
@@ -13,15 +19,16 @@ type CardProps = {
     inventory_count: number;
     rarity?: string;
     pob_name?: string;
+    purchase_options?: PurchaseOption[];
   };
 };
 
 export default function CardItem({ card }: CardProps) {
-  const { addToWishlist, items } = useWishlist();
+  const { addToWishlist } = useWishlist();
+  const [showOptionPicker, setShowOptionPicker] = useState(false);
 
   if (!card || !card.id) return null;
 
-  const isInWishlist = Array.isArray(items) ? items.some(item => item && item.id === card.id) : false;
   const inventoryCount = Number.isFinite(Number(card.inventory_count)) ? Number(card.inventory_count) : 0;
   const isSoldOut = inventoryCount <= 0;
 
@@ -30,7 +37,38 @@ export default function CardItem({ card }: CardProps) {
   const groupName = card.group_name || '';
   const rarity = card.rarity || '';
   const pobName = card.pob_name || '';
-  const price = Number.isFinite(Number(card.price)) ? Number(card.price) : 0;
+  const activeOptions = getActivePurchaseOptions(card);
+  const defaultOption = getDefaultPurchaseOption(card);
+  const displayPrice = Number.isFinite(Number(defaultOption.price)) ? Number(defaultOption.price) : 0;
+  const hasMultipleOptions = activeOptions.length > 1;
+
+  const addOptionToWishlist = (option: PurchaseOption) => {
+    const unitPrice = Number.isFinite(Number(option.price)) ? Number(option.price) : 0;
+    addToWishlist({
+      id: `${card.id}:${option.id}`,
+      card_id: card.id,
+      purchase_option_id: option.id,
+      option_label: option.label,
+      unit_price: unitPrice,
+      price: unitPrice,
+      title,
+      image_url: imageUrl,
+      group_name: groupName,
+      min_quantity: option.min_quantity,
+      max_quantity: option.max_quantity,
+    });
+    setShowOptionPicker(false);
+  };
+
+  const handleAddClick = () => {
+    if (isSoldOut) return;
+    if (!hasMultipleOptions) {
+      addOptionToWishlist(activeOptions[0]);
+      return;
+    }
+
+    setShowOptionPicker(current => !current);
+  };
 
   return (
     <div className={`${styles.card} glass fade-in`}>
@@ -54,21 +92,30 @@ export default function CardItem({ card }: CardProps) {
         )}
         
         <div className={styles.footer}>
-          <span className={styles.price}>${price.toFixed(2)}</span>
+          <span className={styles.price}>${displayPrice.toFixed(2)}</span>
           <button 
             className={styles.addBtn}
-            onClick={() => addToWishlist({
-              id: card.id,
-              title,
-              price,
-              image_url: imageUrl,
-              group_name: groupName,
-            })}
-            disabled={isSoldOut || isInWishlist}
+            onClick={handleAddClick}
+            disabled={isSoldOut}
           >
-            {isSoldOut ? 'Sold Out' : isInWishlist ? 'In Wishlist' : 'Add to Wishlist'}
+            {isSoldOut ? 'Sold Out' : hasMultipleOptions ? 'Choose Option' : 'Add to Wishlist'}
           </button>
         </div>
+        {showOptionPicker && !isSoldOut && (
+          <div className={styles.optionPicker}>
+            {activeOptions.map(option => (
+              <button
+                key={option.id}
+                type="button"
+                className={styles.optionBtn}
+                onClick={() => addOptionToWishlist(option)}
+              >
+                <span>{option.label}</span>
+                <strong>${Number(option.price || 0).toFixed(2)}</strong>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1785,6 +1785,16 @@ export default function AdminDashboard() {
               ) : cards.length > 0 ? (
                 filteredCards.length > 0 ? (
                   <table className={styles.table}>
+                    <colgroup>
+                      <col className={styles.selectCol} />
+                      <col className={styles.previewCol} />
+                      <col className={styles.titleCol} />
+                      <col className={styles.groupCol} />
+                      <col className={styles.pobCol} />
+                      <col className={styles.priceCol} />
+                      <col className={styles.optionsCol} />
+                      <col className={styles.actionsCol} />
+                    </colgroup>
                     <thead>
                       <tr>
                         <th style={{ width: '45px', textAlign: 'center' }}>
@@ -1806,7 +1816,7 @@ export default function AdminDashboard() {
                         <th>POB</th>
                         <th>Price</th>
                         <th>Options</th>
-                        <th>Actions</th>
+                        <th className={styles.actionsHeader}>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1864,7 +1874,7 @@ export default function AdminDashboard() {
                               </div>
                             </td>
 
-                            <td>
+                            <td className={styles.actionsCell}>
                               <div className={styles.actionGroup}>
                                 <button className={styles.editBtn} onClick={() => handleEditCard(card)}>
                                   Edit

@@ -4,16 +4,24 @@ import { createContext, useContext, useState } from 'react';
 
 export type WishlistItem = {
   id: string;
-  title: string;
+  card_id: string;
+  purchase_option_id: string;
+  option_label: string;
+  unit_price: number;
   price: number;
+  title: string;
   image_url: string;
   group_name: string;
   quantity: number;
+  min_quantity: number;
+  max_quantity: number | null;
 };
+
+type WishlistItemInput = Omit<WishlistItem, 'quantity'>;
 
 type WishlistContextType = {
   items: WishlistItem[];
-  addToWishlist: (card: Omit<WishlistItem, 'quantity'>) => void;
+  addToWishlist: (card: WishlistItemInput) => void;
   removeFromWishlist: (id: string) => void;
   updateQuantity: (id: string, quantity: number) => void;
   clearWishlist: () => void;
@@ -25,13 +33,37 @@ const WishlistContext = createContext<WishlistContextType | undefined>(undefined
 export function WishlistProvider({ children }: { children: React.ReactNode }) {
   const [items, setItems] = useState<WishlistItem[]>([]);
 
-  const addToWishlist = (card: Omit<WishlistItem, 'quantity'>) => {
+  const clampQuantity = (item: Pick<WishlistItem, 'min_quantity' | 'max_quantity'>, quantity: number) => {
+    const minQuantity = Math.max(1, Math.floor(Number(item.min_quantity) || 1));
+    const maxQuantity = item.max_quantity == null
+      ? null
+      : Math.max(minQuantity, Math.floor(Number(item.max_quantity) || minQuantity));
+    const requestedQuantity = Number.isFinite(Number(quantity)) ? Math.floor(quantity) : minQuantity;
+    const atLeastMinimum = Math.max(minQuantity, requestedQuantity);
+
+    return maxQuantity == null ? atLeastMinimum : Math.min(maxQuantity, atLeastMinimum);
+  };
+
+  const addToWishlist = (card: WishlistItemInput) => {
     setItems(prev => {
       const existing = prev.find(item => item.id === card.id);
       if (existing) {
-        return prev.map(item => item.id === card.id ? { ...item, quantity: item.quantity + 1 } : item);
+        return prev.map(item => item.id === card.id
+          ? { ...item, quantity: clampQuantity(item, item.quantity + 1) }
+          : item);
       }
-      return [...prev, { ...card, quantity: 1 }];
+
+      const unitPrice = Number.isFinite(Number(card.unit_price)) ? Number(card.unit_price) : 0;
+      const normalizedItem = {
+        ...card,
+        unit_price: unitPrice,
+        price: unitPrice,
+      };
+
+      return [...prev, {
+        ...normalizedItem,
+        quantity: clampQuantity(normalizedItem, normalizedItem.min_quantity),
+      }];
     });
   };
 
@@ -40,13 +72,14 @@ export function WishlistProvider({ children }: { children: React.ReactNode }) {
   };
 
   const updateQuantity = (id: string, quantity: number) => {
-    const validQty = Math.max(1, Math.floor(quantity));
-    setItems(prev => prev.map(item => item.id === id ? { ...item, quantity: validQty } : item));
+    setItems(prev => prev.map(item => item.id === id
+      ? { ...item, quantity: clampQuantity(item, quantity) }
+      : item));
   };
 
   const clearWishlist = () => setItems([]);
 
-  const totalPrice = items.reduce((sum, item) => sum + Number(item.price) * item.quantity, 0);
+  const totalPrice = items.reduce((sum, item) => sum + Number(item.unit_price) * item.quantity, 0);
 
   return (
     <WishlistContext.Provider value={{ items, addToWishlist, removeFromWishlist, updateQuantity, clearWishlist, totalPrice }}>
