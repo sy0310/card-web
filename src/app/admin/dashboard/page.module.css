@@ -436,6 +436,53 @@
   grid-column: 1 / -1;
 }
 
+.purchaseOptionsHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.purchaseOptionsHeader span {
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.purchaseOptionRows {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.purchaseOptionRow {
+  display: grid;
+  grid-template-columns: minmax(120px, 1.2fr) 110px 88px 88px 82px 76px auto;
+  align-items: end;
+  gap: 0.55rem;
+  padding: 0.7rem;
+  border: 1px solid rgba(125, 83, 222, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.checkboxField {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.checkboxField input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--primary);
+}
+
 .editorFooter {
   padding-top: 1rem;
   border-top: 1px solid rgba(125, 83, 222, 0.12);
@@ -899,6 +946,10 @@
 
   .orderItemEditorRow {
     grid-template-columns: 32px minmax(0, 1fr);
+  }
+
+  .purchaseOptionRow {
+    grid-template-columns: 1fr;
   }
 
   .orderCardSearchBar,

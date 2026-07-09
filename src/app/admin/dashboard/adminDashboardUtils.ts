@@ -28,6 +28,30 @@ export type CardUpdatePayload = {
   pob_name?: string;
 };
 
+export type PurchaseOptionDraft = {
+  key: string;
+  id?: string;
+  label: string;
+  price: string;
+  min_quantity: string;
+  max_quantity: string;
+  is_default: boolean;
+  is_active: boolean;
+  sort_order: string;
+};
+
+export type PurchaseOptionPayload = {
+  id?: string;
+  card_id?: string;
+  label: string;
+  price: number;
+  min_quantity: number;
+  max_quantity: number | null;
+  is_default: boolean;
+  is_active: boolean;
+  sort_order: number;
+};
+
 export type AdminSettings = {
   site_title: string;
   official_ig_handle: string;
@@ -90,6 +114,175 @@ const parseCount = (value: string) => {
   if (!Number.isFinite(parsed)) return 0;
   return Math.max(0, Math.floor(parsed));
 };
+
+const createDraftKey = () => {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID();
+  }
+
+  return `draft-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+};
+
+const parseMinimumQuantity = (value: string) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 1;
+  return Math.max(1, Math.floor(parsed));
+};
+
+const parseSortOrder = (value: string, index: number) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return index;
+  return Math.floor(parsed);
+};
+
+const parseMaximumQuantity = (value: string, minQuantity: number) => {
+  const rawValue = trimValue(value);
+  if (!rawValue) return null;
+
+  const parsed = Number(rawValue);
+  if (!Number.isFinite(parsed)) return minQuantity;
+
+  return Math.max(minQuantity, Math.floor(parsed));
+};
+
+const isValidPurchaseOptionDraft = (draft: PurchaseOptionDraft) => {
+  const price = Number(draft.price);
+  const minQuantity = Number(draft.min_quantity);
+  const maxValue = trimValue(draft.max_quantity);
+  const maxQuantity = Number(maxValue);
+
+  return (
+    Boolean(draft.label.trim()) &&
+    Number.isFinite(price) &&
+    price >= 0 &&
+    Number.isFinite(minQuantity) &&
+    minQuantity >= 1 &&
+    (
+      !maxValue ||
+      (Number.isFinite(maxQuantity) && maxQuantity >= minQuantity)
+    )
+  );
+};
+
+export function createPurchaseOptionDrafts(
+  options: Partial<PurchaseOptionPayload>[] = [],
+  fallbackPrice: string | number = 0,
+): PurchaseOptionDraft[] {
+  if (options.length === 0) {
+    return normalizePurchaseOptionDrafts([
+      {
+        key: createDraftKey(),
+        label: 'Single',
+        price: String(parseMoney(String(fallbackPrice))),
+        min_quantity: '1',
+        max_quantity: '',
+        is_default: true,
+        is_active: true,
+        sort_order: '0',
+      },
+    ], fallbackPrice);
+  }
+
+  const sortedOptions = [...options].sort((a, b) => {
+    const aSort = Number(a.sort_order ?? 0);
+    const bSort = Number(b.sort_order ?? 0);
+    return (Number.isFinite(aSort) ? aSort : 0) - (Number.isFinite(bSort) ? bSort : 0);
+  });
+
+  return normalizePurchaseOptionDrafts(
+    sortedOptions.map((option, index) => ({
+      key: trimValue(option.id) || createDraftKey(),
+      id: trimValue(option.id) || undefined,
+      label: trimValue(option.label || (index === 0 ? 'Single' : `Option ${index + 1}`)),
+      price: trimValue(option.price ?? fallbackPrice),
+      min_quantity: trimValue(option.min_quantity ?? 1),
+      max_quantity: option.max_quantity == null ? '' : trimValue(option.max_quantity),
+      is_default: Boolean(option.is_default),
+      is_active: option.is_active !== false,
+      sort_order: trimValue(option.sort_order ?? index),
+    })),
+    fallbackPrice,
+  );
+}
+
+export function normalizePurchaseOptionDrafts(
+  drafts: PurchaseOptionDraft[],
+  fallbackPrice: string | number = 0,
+): PurchaseOptionDraft[] {
+  const normalizedDrafts = drafts.length > 0
+    ? drafts.map((draft, index) => ({
+        ...draft,
+        key: trimValue(draft.key) || createDraftKey(),
+        id: trimValue(draft.id) || undefined,
+        label: trimValue(draft.label),
+        price: trimValue(draft.price || fallbackPrice),
+        min_quantity: trimValue(draft.min_quantity || 1),
+        max_quantity: trimValue(draft.max_quantity),
+        sort_order: String(parseSortOrder(draft.sort_order, index)),
+        is_default: Boolean(draft.is_default),
+        is_active: Boolean(draft.is_active),
+      }))
+    : createPurchaseOptionDrafts([], fallbackPrice);
+
+  const firstDefaultIndex = normalizedDrafts.findIndex(draft => draft.is_default);
+  const fallbackDefaultIndex = normalizedDrafts.findIndex(isValidPurchaseOptionDraft);
+  const defaultIndex = firstDefaultIndex >= 0
+    ? firstDefaultIndex
+    : Math.max(0, fallbackDefaultIndex);
+
+  return normalizedDrafts.map((draft, index) => ({
+    ...draft,
+    is_default: index === defaultIndex,
+    sort_order: String(index),
+  }));
+}
+
+export function getPurchaseOptionDraftErrors(drafts: PurchaseOptionDraft[]) {
+  const errors: string[] = [];
+
+  drafts.forEach((draft, index) => {
+    const rowLabel = `Purchase option ${index + 1}`;
+    const price = Number(draft.price);
+    const minQuantity = Number(draft.min_quantity);
+    const maxValue = trimValue(draft.max_quantity);
+    const maxQuantity = Number(maxValue);
+
+    if (!draft.label.trim()) errors.push(`${rowLabel}: label is required.`);
+    if (!Number.isFinite(price) || price < 0) {
+      errors.push(`${rowLabel}: price must be a valid number greater than or equal to 0.`);
+    }
+    if (!Number.isFinite(minQuantity) || minQuantity < 1) {
+      errors.push(`${rowLabel}: min quantity must be at least 1.`);
+    }
+    if (maxValue && (!Number.isFinite(maxQuantity) || maxQuantity < minQuantity)) {
+      errors.push(`${rowLabel}: max quantity must be blank or greater than or equal to min quantity.`);
+    }
+  });
+
+  return errors;
+}
+
+export function buildPurchaseOptionPayloads(
+  cardId: string,
+  drafts: PurchaseOptionDraft[],
+  fallbackPrice: string | number = 0,
+): PurchaseOptionPayload[] {
+  return normalizePurchaseOptionDrafts(drafts, fallbackPrice).map((draft, index) => {
+    const minQuantity = parseMinimumQuantity(draft.min_quantity);
+
+    return {
+      id: draft.id,
+      card_id: cardId,
+      label: trimValue(draft.label) || 'Single',
+      price: parseMoney(trimValue(draft.price || fallbackPrice)),
+      min_quantity: minQuantity,
+      max_quantity: parseMaximumQuantity(draft.max_quantity, minQuantity),
+      is_default: draft.is_default,
+      is_active: draft.is_active,
+      sort_order: index,
+    };
+  });
+}
 
 export function normalizeInstagramUrl(value: unknown) {
   const rawValue = trimValue(value);

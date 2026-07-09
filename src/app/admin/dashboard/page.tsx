@@ -14,18 +14,24 @@ import {
   type AdminSettings,
   type CardEditDraft,
   type CardUpdatePayload,
+  type PurchaseOptionDraft,
+  type PurchaseOptionPayload,
   type WishlistDraftItem,
   applyCardPatch,
   buildCardUpdatePayload,
+  buildPurchaseOptionPayloads,
   buildSettingsRows,
   buildWishlistItemInsertRows,
   calculateWishlistTotal,
   createCardDraft,
+  createPurchaseOptionDrafts,
   createWishlistItemsDraft,
   defaultAdminSettings,
   formatAdminError,
   getCardDraftErrors,
+  getPurchaseOptionDraftErrors,
   isMissingColumnError,
+  normalizePurchaseOptionDrafts,
   normalizeAdminSettings,
   parseWishlistQuantity,
 } from './adminDashboardUtils';
@@ -35,6 +41,7 @@ type AdminTab = 'inventory' | 'wishlists' | 'settings';
 type AdminCard = CardUpdatePayload & {
   id: string;
   created_at?: string;
+  purchase_options?: PurchaseOptionPayload[];
 };
 
 type CardSaveResponse = {
@@ -83,6 +90,7 @@ export default function AdminDashboard() {
   const [savingSettings, setSavingSettings] = useState(false);
   const [editingCard, setEditingCard] = useState<AdminCard | null>(null);
   const [cardDraft, setCardDraft] = useState<CardEditDraft | null>(null);
+  const [purchaseOptionDrafts, setPurchaseOptionDrafts] = useState<PurchaseOptionDraft[]>([]);
   const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string>('');
   const [savingCard, setSavingCard] = useState(false);
@@ -282,7 +290,46 @@ export default function AdminDashboard() {
       }
     }
 
-    setCards(allCards);
+    if (allCards.length === 0) {
+      setCards([]);
+      setLoadingCards(false);
+      return;
+    }
+
+    const optionsByCardId = new Map<string, PurchaseOptionPayload[]>();
+    const cardIds = allCards.map(card => card.id);
+    const optionIdBatchSize = 500;
+    let optionsErrorMessage = '';
+
+    for (let index = 0; index < cardIds.length; index += optionIdBatchSize) {
+      const cardIdBatch = cardIds.slice(index, index + optionIdBatchSize);
+      const { data: optionsData, error: optionsError } = await supabase
+        .from('card_purchase_options')
+        .select('*')
+        .in('card_id', cardIdBatch)
+        .order('sort_order', { ascending: true });
+
+      if (optionsError) {
+        optionsErrorMessage = optionsError.message;
+        break;
+      }
+
+      for (const option of (optionsData ?? []) as PurchaseOptionPayload[]) {
+        if (!option.card_id) continue;
+        const currentOptions = optionsByCardId.get(option.card_id) ?? [];
+        currentOptions.push(option);
+        optionsByCardId.set(option.card_id, currentOptions);
+      }
+    }
+
+    if (optionsErrorMessage) {
+      setStatusMessage(`Cards loaded, but purchase options could not be loaded: ${optionsErrorMessage}`);
+    }
+
+    setCards(allCards.map(card => ({
+      ...card,
+      purchase_options: optionsByCardId.get(card.id) ?? [],
+    })));
     setLoadingCards(false);
   }, []);
 
@@ -378,6 +425,7 @@ export default function AdminDashboard() {
   const handleEditCard = (card: AdminCard) => {
     setEditingCard(card);
     setCardDraft(createCardDraft(card));
+    setPurchaseOptionDrafts(createPurchaseOptionDrafts(card.purchase_options ?? [], card.price));
     setSelectedImageFile(null);
     setImagePreviewUrl('');
     setStatusMessage('');
@@ -387,9 +435,62 @@ export default function AdminDashboard() {
     setCardDraft(current => current ? { ...current, [field]: value } : current);
   };
 
+  const updatePurchaseOptionDraft = (
+    key: string,
+    patch: Partial<Omit<PurchaseOptionDraft, 'key'>>,
+  ) => {
+    setPurchaseOptionDrafts(current =>
+      current.map(option => option.key === key ? { ...option, ...patch } : option),
+    );
+  };
+
+  const setDefaultPurchaseOption = (key: string, isDefault: boolean) => {
+    setPurchaseOptionDrafts(current =>
+      current.map(option => ({
+        ...option,
+        is_default: isDefault && option.key === key,
+      })),
+    );
+  };
+
+  const addPurchaseOptionDraft = () => {
+    const fallbackPrice = cardDraft?.price ?? editingCard?.price ?? 0;
+    const numericFallbackPrice = Number(fallbackPrice);
+    setPurchaseOptionDrafts(current => [
+      ...current,
+      ...createPurchaseOptionDrafts([
+        {
+          label: `Option ${current.length + 1}`,
+          price: Number.isFinite(numericFallbackPrice) ? numericFallbackPrice : 0,
+          min_quantity: 1,
+          max_quantity: null,
+          is_default: false,
+          is_active: true,
+          sort_order: current.length,
+        },
+      ], fallbackPrice).map(option => ({
+        ...option,
+        is_default: false,
+        sort_order: String(current.length),
+      })),
+    ]);
+  };
+
+  const removePurchaseOptionDraft = (key: string) => {
+    const fallbackPrice = cardDraft?.price ?? editingCard?.price ?? 0;
+    setPurchaseOptionDrafts(current => {
+      const nextDrafts = current.filter(option => option.key !== key);
+      return normalizePurchaseOptionDrafts(
+        nextDrafts.length > 0 ? nextDrafts : createPurchaseOptionDrafts([], fallbackPrice),
+        fallbackPrice,
+      );
+    });
+  };
+
   const closeCardEditor = () => {
     setEditingCard(null);
     setCardDraft(null);
+    setPurchaseOptionDrafts([]);
     setSelectedImageFile(null);
     setImagePreviewUrl('');
     setSavingCard(false);
@@ -399,9 +500,19 @@ export default function AdminDashboard() {
     event.preventDefault();
     if (!editingCard || !cardDraft) return;
 
+    const normalizedPurchaseOptions = normalizePurchaseOptionDrafts(
+      purchaseOptionDrafts,
+      cardDraft.price,
+    );
     const errors = getCardDraftErrors(cardDraft);
+    const purchaseOptionErrors = getPurchaseOptionDraftErrors(normalizedPurchaseOptions);
     if (errors.length > 0) {
       setStatusMessage(errors.join(' '));
+      return;
+    }
+    if (purchaseOptionErrors.length > 0) {
+      setPurchaseOptionDrafts(normalizedPurchaseOptions);
+      setStatusMessage(purchaseOptionErrors.join(' '));
       return;
     }
 
@@ -450,9 +561,61 @@ export default function AdminDashboard() {
         setStatusMessage(`Error saving card: ${saveResult.error || `Request failed with status ${saveRes.status}`}`);
       } else {
         const savedCard = saveResult.card ?? { ...editingCard, ...payload };
-        setCards(current => applyCardPatch(current, editingCard.id, savedCard));
-        setStatusMessage('Card updated.');
-        closeCardEditor();
+        const optionPayloads = buildPurchaseOptionPayloads(
+          editingCard.id,
+          normalizedPurchaseOptions,
+          payload.price,
+        );
+
+        try {
+          const { error: deleteOptionsError } = await supabase
+            .from('card_purchase_options')
+            .delete()
+            .eq('card_id', editingCard.id);
+
+          if (deleteOptionsError) throw deleteOptionsError;
+
+          let savedPurchaseOptions: PurchaseOptionPayload[] = [];
+          if (optionPayloads.length > 0) {
+            const optionInsertRows = optionPayloads.map(option => ({
+              card_id: option.card_id,
+              label: option.label,
+              price: option.price,
+              min_quantity: option.min_quantity,
+              max_quantity: option.max_quantity,
+              is_default: option.is_default,
+              is_active: option.is_active,
+              sort_order: option.sort_order,
+            }));
+            const { data: insertedOptions, error: insertOptionsError } = await supabase
+              .from('card_purchase_options')
+              .insert(optionInsertRows)
+              .select('*');
+
+            if (insertOptionsError) throw insertOptionsError;
+
+            savedPurchaseOptions = ((insertedOptions ?? []) as PurchaseOptionPayload[])
+              .sort((a, b) => a.sort_order - b.sort_order);
+          }
+
+          const savedCardWithOptions = {
+            ...savedCard,
+            purchase_options: savedPurchaseOptions,
+          };
+          setCards(current => applyCardPatch(current, editingCard.id, savedCardWithOptions));
+          setStatusMessage('Card updated.');
+          closeCardEditor();
+        } catch (optionError: unknown) {
+          const savedCardWithExistingOptions = {
+            ...savedCard,
+            purchase_options: editingCard.purchase_options ?? [],
+          };
+          setCards(current => applyCardPatch(current, editingCard.id, savedCardWithExistingOptions));
+          setEditingCard(savedCardWithExistingOptions);
+          setCardDraft(createCardDraft(savedCardWithExistingOptions));
+          setPurchaseOptionDrafts(normalizedPurchaseOptions);
+          setStatusMessage(`Card saved, but purchase options failed: ${formatAdminError(optionError)}`);
+        }
       }
     } catch (err: unknown) {
       const errMsg = formatAdminFetchError(err, 'Saving card');
@@ -1073,6 +1236,89 @@ export default function AdminDashboard() {
                     required
                   />
                 </label>
+                <div className={`${styles.field} ${styles.wideField}`}>
+                  <div className={styles.purchaseOptionsHeader}>
+                    <span>Purchase Options</span>
+                    <button
+                      type="button"
+                      className={styles.secondaryBtn}
+                      onClick={addPurchaseOptionDraft}
+                    >
+                      Add Option
+                    </button>
+                  </div>
+                  <div className={styles.purchaseOptionRows}>
+                    {purchaseOptionDrafts.map(option => (
+                      <div key={option.key} className={styles.purchaseOptionRow}>
+                        <label className={styles.field}>
+                          <span>Label</span>
+                          <input
+                            type="text"
+                            value={option.label}
+                            onChange={event => updatePurchaseOptionDraft(option.key, { label: event.target.value })}
+                            required
+                          />
+                        </label>
+                        <label className={styles.field}>
+                          <span>Price</span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={option.price}
+                            onChange={event => updatePurchaseOptionDraft(option.key, { price: event.target.value })}
+                            required
+                          />
+                        </label>
+                        <label className={styles.field}>
+                          <span>Min Qty</span>
+                          <input
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={option.min_quantity}
+                            onChange={event => updatePurchaseOptionDraft(option.key, { min_quantity: event.target.value })}
+                            required
+                          />
+                        </label>
+                        <label className={styles.field}>
+                          <span>Max Qty</span>
+                          <input
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={option.max_quantity}
+                            onChange={event => updatePurchaseOptionDraft(option.key, { max_quantity: event.target.value })}
+                            placeholder="No max"
+                          />
+                        </label>
+                        <label className={styles.checkboxField}>
+                          <input
+                            type="checkbox"
+                            checked={option.is_default}
+                            onChange={event => setDefaultPurchaseOption(option.key, event.target.checked)}
+                          />
+                          <span>Default</span>
+                        </label>
+                        <label className={styles.checkboxField}>
+                          <input
+                            type="checkbox"
+                            checked={option.is_active}
+                            onChange={event => updatePurchaseOptionDraft(option.key, { is_active: event.target.checked })}
+                          />
+                          <span>Active</span>
+                        </label>
+                        <button
+                          type="button"
+                          className={styles.deleteInlineBtn}
+                          onClick={() => removePurchaseOptionDraft(option.key)}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
                 <label className={styles.field}>
                   <span>Group</span>
                   <input

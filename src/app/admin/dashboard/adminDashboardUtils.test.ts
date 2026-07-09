@@ -3,13 +3,17 @@ import test from 'node:test';
 import {
   applyCardPatch,
   buildCardUpdatePayload,
+  buildPurchaseOptionPayloads,
   buildSettingsRows,
   buildWishlistItemInsertRows,
   calculateWishlistTotal,
+  createPurchaseOptionDrafts,
   createWishlistItemsDraft,
   formatAdminError,
   getCardDraftErrors,
+  getPurchaseOptionDraftErrors,
   isMissingColumnError,
+  normalizePurchaseOptionDrafts,
   normalizeInstagramUrl,
   normalizeAdminSettings,
 } from './adminDashboardUtils.ts';
@@ -77,6 +81,116 @@ test('applyCardPatch updates one card without mutating the original list', () =>
     { id: 'card-2', title: 'Keep me', price: 5 },
   ]);
   assert.deepEqual(cards[0], { id: 'card-1', title: 'Old title', price: 4 });
+});
+
+test('createPurchaseOptionDrafts creates a default Single option when none exist', () => {
+  const drafts = createPurchaseOptionDrafts([], '8.5');
+
+  assert.equal(drafts.length, 1);
+  assert.equal(drafts[0].label, 'Single');
+  assert.equal(drafts[0].price, '8.5');
+  assert.equal(drafts[0].min_quantity, '1');
+  assert.equal(drafts[0].max_quantity, '');
+  assert.equal(drafts[0].is_default, true);
+  assert.equal(drafts[0].is_active, true);
+  assert.equal(drafts[0].sort_order, '0');
+});
+
+test('normalizePurchaseOptionDrafts keeps only the first default option', () => {
+  const drafts = normalizePurchaseOptionDrafts([
+    {
+      key: 'row-1',
+      label: 'Single',
+      price: '10',
+      min_quantity: '1',
+      max_quantity: '',
+      is_default: true,
+      is_active: true,
+      sort_order: '0',
+    },
+    {
+      key: 'row-2',
+      label: 'Set',
+      price: '18',
+      min_quantity: '2',
+      max_quantity: '',
+      is_default: true,
+      is_active: true,
+      sort_order: '1',
+    },
+  ], '10');
+
+  assert.deepEqual(drafts.map(draft => draft.is_default), [true, false]);
+});
+
+test('getPurchaseOptionDraftErrors flags max quantity below min quantity', () => {
+  assert.deepEqual(
+    getPurchaseOptionDraftErrors([
+      {
+        key: 'row-1',
+        label: 'Bundle',
+        price: '20',
+        min_quantity: '3',
+        max_quantity: '2',
+        is_default: true,
+        is_active: true,
+        sort_order: '0',
+      },
+    ]),
+    ['Purchase option 1: max quantity must be blank or greater than or equal to min quantity.'],
+  );
+});
+
+test('buildPurchaseOptionPayloads emits numeric prices and nullable max quantities', () => {
+  assert.deepEqual(
+    buildPurchaseOptionPayloads('card-1', [
+      {
+        key: 'row-1',
+        id: 'option-1',
+        label: ' Single ',
+        price: '12.349',
+        min_quantity: '1',
+        max_quantity: '',
+        is_default: true,
+        is_active: true,
+        sort_order: 'not-a-number',
+      },
+      {
+        key: 'row-2',
+        label: 'Set',
+        price: '20',
+        min_quantity: '2',
+        max_quantity: '5',
+        is_default: false,
+        is_active: false,
+        sort_order: '4',
+      },
+    ], '9'),
+    [
+      {
+        id: 'option-1',
+        card_id: 'card-1',
+        label: 'Single',
+        price: 12.35,
+        min_quantity: 1,
+        max_quantity: null,
+        is_default: true,
+        is_active: true,
+        sort_order: 0,
+      },
+      {
+        id: undefined,
+        card_id: 'card-1',
+        label: 'Set',
+        price: 20,
+        min_quantity: 2,
+        max_quantity: 5,
+        is_default: false,
+        is_active: false,
+        sort_order: 1,
+      },
+    ],
+  );
 });
 
 test('normalizeAdminSettings keeps settings usable for storefront copy', () => {
