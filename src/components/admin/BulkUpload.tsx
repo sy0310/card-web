@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { fetchJsonWithRetry, formatAdminFetchError } from '@/lib/client/adminFetch';
+import { fetchAdminJsonWithRetry, formatAdminFetchError } from '@/lib/client/adminFetch';
 import styles from './BulkUpload.module.css';
 
 type UploadCardResponse = {
@@ -24,11 +24,10 @@ function formatSyncErrorMessage(message: string) {
 }
 
 type BulkUploadProps = {
-  accessToken: string;
   onComplete: () => void;
 };
 
-export default function BulkUpload({ accessToken, onComplete }: BulkUploadProps) {
+export default function BulkUpload({ onComplete }: BulkUploadProps) {
   const [activeTab, setActiveTab] = useState<'bulk' | 'single' | 'sync_url'>('bulk');
   const [uploading, setUploading] = useState(false);
   const [igUrl, setIgUrl] = useState('');
@@ -41,14 +40,10 @@ export default function BulkUpload({ accessToken, onComplete }: BulkUploadProps)
     }
     setSyncingUrl(true);
     try {
-      if (!accessToken) {
-        throw new Error('Please sign in again before syncing.');
-      }
-      const { response: res, data: result } = await fetchJsonWithRetry<UploadCardResponse>('/api/admin/cards/sync-instagram', {
+      const { response: res, data: result } = await fetchAdminJsonWithRetry<UploadCardResponse>('/api/admin/cards/sync-instagram', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({ url: igUrl.trim() }),
       });
@@ -149,10 +144,6 @@ export default function BulkUpload({ accessToken, onComplete }: BulkUploadProps)
     file: File,
     fields: Record<string, string | boolean | number>,
   ) => {
-    if (!accessToken) {
-      throw new Error('Please sign in again before uploading.');
-    }
-
     const formData = new FormData();
     formData.append('file', file);
 
@@ -160,11 +151,8 @@ export default function BulkUpload({ accessToken, onComplete }: BulkUploadProps)
       formData.append(key, String(value));
     });
 
-    const { response: res, data: result } = await fetchJsonWithRetry<UploadCardResponse>('/api/admin/cards/upload', {
+    const { response: res, data: result } = await fetchAdminJsonWithRetry<UploadCardResponse>('/api/admin/cards/upload', {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
       body: formData,
     });
 

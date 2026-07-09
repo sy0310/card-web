@@ -8,7 +8,7 @@ import { supabase } from '@/lib/supabase';
 import BulkUpload from '@/components/admin/BulkUpload';
 import WishlistReceipt, { type ReceiptLineItem } from '@/components/WishlistReceipt';
 import { waitForImages } from '@/components/checkoutImageUtils';
-import { fetchJsonWithRetry, formatAdminFetchError } from '@/lib/client/adminFetch';
+import { fetchAdminJsonWithRetry, formatAdminFetchError } from '@/lib/client/adminFetch';
 import styles from './page.module.css';
 import {
   type AdminSettings,
@@ -409,7 +409,7 @@ export default function AdminDashboard() {
     setStatusMessage('');
 
     try {
-      if (!session?.access_token) {
+      if (!session) {
         throw new Error('Please sign in again before saving.');
       }
 
@@ -418,11 +418,8 @@ export default function AdminDashboard() {
         const formData = new FormData();
         formData.append('file', selectedImageFile);
 
-        const { response: uploadRes, data: uploadResult } = await fetchJsonWithRetry<ImageUploadResponse>('/api/admin/cards/upload-image', {
+        const { response: uploadRes, data: uploadResult } = await fetchAdminJsonWithRetry<ImageUploadResponse>('/api/admin/cards/upload-image', {
           method: 'POST',
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-          },
           body: formData,
         });
 
@@ -441,11 +438,10 @@ export default function AdminDashboard() {
         image_url: finalImageUrl,
       };
 
-      const { response: saveRes, data: saveResult } = await fetchJsonWithRetry<CardSaveResponse>(`/api/admin/cards/${encodeURIComponent(editingCard.id)}`, {
+      const { response: saveRes, data: saveResult } = await fetchAdminJsonWithRetry<CardSaveResponse>(`/api/admin/cards/${encodeURIComponent(editingCard.id)}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
         },
         body: JSON.stringify(payload),
       });
@@ -1021,7 +1017,7 @@ export default function AdminDashboard() {
             <BulkUpload onComplete={() => {
               setShowUpload(false);
               void fetchCards();
-            }} accessToken={session.access_token} />
+            }} />
           </div>
         </div>
       )}
