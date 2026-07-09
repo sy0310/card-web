@@ -79,6 +79,28 @@ type WishlistEditDraft = {
   items: WishlistDraftItem[];
 };
 
+function getInventoryPurchaseOptions(card: AdminCard): PurchaseOptionPayload[] {
+  const options = card.purchase_options ?? [];
+  if (options.length === 0) {
+    return [{
+      card_id: card.id,
+      label: 'Single',
+      price: Number(card.price) || 0,
+      min_quantity: 1,
+      max_quantity: null,
+      is_default: true,
+      is_active: true,
+      sort_order: 0,
+    }];
+  }
+
+  return [...options].sort((a, b) => {
+    const aSort = Number(a.sort_order);
+    const bSort = Number(b.sort_order);
+    return (Number.isFinite(aSort) ? aSort : 0) - (Number.isFinite(bSort) ? bSort : 0);
+  });
+}
+
 export default function AdminDashboard() {
   const [session, setSession] = useState<Session | null>(null);
   const [showUpload, setShowUpload] = useState(false);
@@ -1783,54 +1805,82 @@ export default function AdminDashboard() {
                         <th>Group</th>
                         <th>POB</th>
                         <th>Price</th>
+                        <th>Options</th>
                         <th>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredCards.map(card => (
-                        <tr key={card.id}>
-                          <td style={{ textAlign: 'center' }}>
-                            <input
-                              type="checkbox"
-                              checked={selectedIds.includes(card.id)}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setSelectedIds(prev => [...prev, card.id]);
-                                } else {
-                                  setSelectedIds(prev => prev.filter(id => id !== card.id));
-                                }
-                              }}
-                            />
-                          </td>
-                          <td>
-                            <img src={card.image_url} alt={card.title} className={styles.miniImg} />
-                          </td>
-                          <td>
-                            <div className={styles.cardTitleCell}>
-                              <strong>{card.title}</strong>
-                              <span>{card.member_name || card.album_era || 'No extra metadata'}</span>
-                            </div>
-                          </td>
-                          <td>{card.group_name || '-'}</td>
-                          <td>{card.pob_name || '-'}</td>
-                          <td>${Number(card.price || 0).toFixed(2)}</td>
+                      {filteredCards.map(card => {
+                        const inventoryPurchaseOptions = getInventoryPurchaseOptions(card);
 
-                          <td>
-                            <div className={styles.actionGroup}>
-                              <button className={styles.editBtn} onClick={() => handleEditCard(card)}>
-                                Edit
-                              </button>
-                              <button
-                                className={styles.deleteInlineBtn}
-                                onClick={() => void handleDeleteCard(card)}
-                                disabled={deletingCardId === card.id}
-                              >
-                                {deletingCardId === card.id ? 'Deleting' : 'Delete'}
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                        return (
+                          <tr key={card.id}>
+                            <td style={{ textAlign: 'center' }}>
+                              <input
+                                type="checkbox"
+                                checked={selectedIds.includes(card.id)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedIds(prev => [...prev, card.id]);
+                                  } else {
+                                    setSelectedIds(prev => prev.filter(id => id !== card.id));
+                                  }
+                                }}
+                              />
+                            </td>
+                            <td>
+                              <img src={card.image_url} alt={card.title} className={styles.miniImg} />
+                            </td>
+                            <td>
+                              <div className={styles.cardTitleCell}>
+                                <strong>{card.title}</strong>
+                                <span>{card.member_name || card.album_era || 'No extra metadata'}</span>
+                              </div>
+                            </td>
+                            <td>{card.group_name || '-'}</td>
+                            <td>{card.pob_name || '-'}</td>
+                            <td>${Number(card.price || 0).toFixed(2)}</td>
+                            <td>
+                              <div className={styles.inventoryOptionsList}>
+                                {inventoryPurchaseOptions.map((option, index) => (
+                                  <div
+                                    key={option.id ?? `${option.label}-${index}`}
+                                    className={`${styles.inventoryOption} ${option.is_active ? '' : styles.inventoryOptionInactive}`}
+                                  >
+                                    <span className={styles.inventoryOptionName}>
+                                      {option.label || 'Single'}
+                                    </span>
+                                    <span className={styles.inventoryOptionPrice}>
+                                      ${Number(option.price || 0).toFixed(2)}
+                                    </span>
+                                    {option.is_default && (
+                                      <span className={styles.inventoryOptionDefault}>Default</span>
+                                    )}
+                                    {!option.is_active && (
+                                      <span className={styles.inventoryOptionInactiveBadge}>Inactive</span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </td>
+
+                            <td>
+                              <div className={styles.actionGroup}>
+                                <button className={styles.editBtn} onClick={() => handleEditCard(card)}>
+                                  Edit
+                                </button>
+                                <button
+                                  className={styles.deleteInlineBtn}
+                                  onClick={() => void handleDeleteCard(card)}
+                                  disabled={deletingCardId === card.id}
+                                >
+                                  {deletingCardId === card.id ? 'Deleting' : 'Delete'}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 ) : (

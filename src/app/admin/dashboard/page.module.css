@@ -202,7 +202,7 @@
 
 .table {
   width: 100%;
-  min-width: 860px;
+  min-width: 1040px;
   border-collapse: collapse;
   text-align: left;
 }
@@ -247,6 +247,57 @@
 .emptyText {
   color: var(--text-muted);
   font-size: 0.82rem;
+}
+
+.inventoryOptionsList {
+  min-width: 220px;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.inventoryOption {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  color: var(--foreground);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.inventoryOptionInactive {
+  color: var(--text-muted);
+  opacity: 0.68;
+}
+
+.inventoryOptionName {
+  font-weight: 800;
+}
+
+.inventoryOptionPrice {
+  font-weight: 750;
+}
+
+.inventoryOptionDefault,
+.inventoryOptionInactiveBadge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  border-radius: 8px;
+  padding: 0.12rem 0.42rem;
+  font-size: 0.68rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.inventoryOptionDefault {
+  background: rgba(15, 118, 110, 0.12);
+  color: #0f766e;
+}
+
+.inventoryOptionInactiveBadge {
+  background: rgba(107, 114, 128, 0.12);
+  color: #6b7280;
 }
 
 .actionGroup {
