@@ -243,37 +243,153 @@ test('normalizeInstagramUrl accepts pasted Instagram links without a scheme', ()
   assert.equal(normalizeInstagramUrl(''), '');
 });
 
-test('createWishlistItemsDraft groups repeated wishlist rows into quantities', () => {
+test('createWishlistItemsDraft groups repeated wishlist rows by purchase option and snapshot', () => {
   assert.deepEqual(
     createWishlistItemsDraft([
-      { card_id: 'card-1' },
-      { card_id: 'card-2' },
-      { card_id: 'card-1' },
+      {
+        card_id: 'card-1',
+        purchase_option_id: 'option-single',
+        option_label_snapshot: 'Single',
+        unit_price_snapshot: 16,
+      },
+      {
+        card_id: 'card-1',
+        purchase_option_id: 'option-set',
+        option_label_snapshot: 'Set',
+        unit_price_snapshot: 28,
+      },
+      {
+        card_id: 'card-1',
+        purchase_option_id: 'option-single',
+        option_label_snapshot: 'Single',
+        unit_price_snapshot: 16,
+      },
+      { card_id: 'card-2', cards: { id: 'card-2', price: 5 } },
       { card_id: '' },
     ]),
     [
-      { key: 'card-1', card_id: 'card-1', quantity: '2' },
-      { key: 'card-2', card_id: 'card-2', quantity: '1' },
+      {
+        key: 'card-1:option-single:16.00:Single',
+        card_id: 'card-1',
+        purchase_option_id: 'option-single',
+        option_label_snapshot: 'Single',
+        unit_price_snapshot: 16,
+        quantity: '2',
+      },
+      {
+        key: 'card-1:option-set:28.00:Set',
+        card_id: 'card-1',
+        purchase_option_id: 'option-set',
+        option_label_snapshot: 'Set',
+        unit_price_snapshot: 28,
+        quantity: '1',
+      },
+      {
+        key: 'card-2:single:5.00:Single',
+        card_id: 'card-2',
+        purchase_option_id: null,
+        option_label_snapshot: 'Single',
+        unit_price_snapshot: 5,
+        quantity: '1',
+      },
     ],
   );
 });
 
-test('calculateWishlistTotal and buildWishlistItemInsertRows use edited quantities', () => {
+test('calculateWishlistTotal uses snapshot prices before current card prices', () => {
   const items = [
-    { key: 'row-1', card_id: 'card-1', quantity: '2.9' },
+    {
+      key: 'row-1',
+      card_id: 'card-1',
+      purchase_option_id: 'option-set',
+      option_label_snapshot: 'Set',
+      unit_price_snapshot: 28,
+      quantity: '2.9',
+    },
     { key: 'row-2', card_id: 'card-2', quantity: 'bad' },
   ];
   const cardsById = new Map([
-    ['card-1', { id: 'card-1', price: 12.345 }],
+    ['card-1', {
+      id: 'card-1',
+      price: 12.345,
+      purchase_options: [{
+        id: 'option-set',
+        card_id: 'card-1',
+        label: 'Set',
+        price: 30,
+        min_quantity: 1,
+        max_quantity: null,
+        is_default: false,
+        is_active: true,
+        sort_order: 1,
+      }],
+    }],
     ['card-2', { id: 'card-2', price: '5' }],
   ]);
 
-  assert.equal(calculateWishlistTotal(items, cardsById), 29.7);
-  assert.deepEqual(buildWishlistItemInsertRows('wishlist-1', items), [
-    { wishlist_id: 'wishlist-1', card_id: 'card-1' },
-    { wishlist_id: 'wishlist-1', card_id: 'card-1' },
-    { wishlist_id: 'wishlist-1', card_id: 'card-2' },
+  assert.equal(calculateWishlistTotal(items, cardsById), 61);
+  assert.deepEqual(buildWishlistItemInsertRows('wishlist-1', items, cardsById), [
+    {
+      wishlist_id: 'wishlist-1',
+      card_id: 'card-1',
+      purchase_option_id: 'option-set',
+      option_label_snapshot: 'Set',
+      unit_price_snapshot: 28,
+    },
+    {
+      wishlist_id: 'wishlist-1',
+      card_id: 'card-1',
+      purchase_option_id: 'option-set',
+      option_label_snapshot: 'Set',
+      unit_price_snapshot: 28,
+    },
+    {
+      wishlist_id: 'wishlist-1',
+      card_id: 'card-2',
+      purchase_option_id: null,
+      option_label_snapshot: 'Single',
+      unit_price_snapshot: 5,
+    },
   ]);
+});
+
+test('buildWishlistItemInsertRows keeps different purchase options separate', () => {
+  assert.deepEqual(
+    buildWishlistItemInsertRows('wishlist-1', [
+      {
+        key: 'card-1:single:10.00:Single',
+        card_id: 'card-1',
+        purchase_option_id: 'single',
+        option_label_snapshot: 'Single',
+        unit_price_snapshot: 10,
+        quantity: '1',
+      },
+      {
+        key: 'card-1:set:18.00:Set',
+        card_id: 'card-1',
+        purchase_option_id: 'set',
+        option_label_snapshot: 'Set',
+        unit_price_snapshot: 18,
+        quantity: '1',
+      },
+    ]),
+    [
+      {
+        wishlist_id: 'wishlist-1',
+        card_id: 'card-1',
+        purchase_option_id: 'single',
+        option_label_snapshot: 'Single',
+        unit_price_snapshot: 10,
+      },
+      {
+        wishlist_id: 'wishlist-1',
+        card_id: 'card-1',
+        purchase_option_id: 'set',
+        option_label_snapshot: 'Set',
+        unit_price_snapshot: 18,
+      },
+    ],
+  );
 });
 
 test('formatAdminError surfaces Supabase object details instead of object placeholders', () => {

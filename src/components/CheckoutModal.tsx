@@ -72,9 +72,15 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
       const wishlistItems = safeItems.flatMap(item => {
         if (!item || !item.id) return [];
         const qty = Number.isFinite(Number(item.quantity)) ? Number(item.quantity) : 1;
+        const unitPrice = Number.isFinite(Number(item.unit_price))
+          ? Number(item.unit_price)
+          : Number(item.price) || 0;
         return Array.from({ length: Math.max(1, Math.floor(qty)) }, () => ({
           wishlist_id: wishlistData.id,
-          card_id: item.id,
+          card_id: item.card_id || item.id,
+          purchase_option_id: item.purchase_option_id || null,
+          option_label_snapshot: item.option_label || 'Single',
+          unit_price_snapshot: unitPrice,
         }));
       });
 

@@ -834,7 +834,7 @@
 
 .orderItemEditorRow {
   display: grid;
-  grid-template-columns: 32px minmax(0, 1fr) 76px auto;
+  grid-template-columns: 32px minmax(180px, 1.2fr) minmax(150px, 0.9fr) minmax(105px, auto) 76px auto;
   align-items: center;
   gap: 0.55rem;
   padding: 0.65rem;
@@ -853,6 +853,13 @@
   font: inherit;
   padding: 0.62rem 0.7rem;
   outline: none;
+}
+
+.orderItemPrice {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 750;
+  white-space: nowrap;
 }
 
 .hiddenReceipt {
@@ -1051,7 +1058,9 @@
     grid-template-columns: 1fr;
   }
 
+  .orderItemEditorRow select,
   .orderItemEditorRow input,
+  .orderItemEditorRow span,
   .orderItemEditorRow button {
     grid-column: 2;
   }

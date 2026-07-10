@@ -11,6 +11,8 @@ export type ReceiptLineItem = {
   id: string;
   title: string;
   price: number;
+  unit_price?: number;
+  option_label?: string;
   image_url: string;
   group_name?: string;
   quantity: number;
@@ -53,7 +55,10 @@ export default function WishlistReceipt({
           const title = item.title || 'Untitled';
           const groupName = item.group_name || '';
           const quantity = Number.isFinite(Number(item.quantity)) ? Number(item.quantity) : 1;
-          const price = Number.isFinite(Number(item.price)) ? Number(item.price) : 0;
+          const price = Number.isFinite(Number(item.unit_price))
+            ? Number(item.unit_price)
+            : Number.isFinite(Number(item.price)) ? Number(item.price) : 0;
+          const optionLabel = item.option_label || '';
           return (
             <div key={item.id} className={styles.summaryItem}>
               <div className={styles.summaryThumb}>
@@ -66,7 +71,7 @@ export default function WishlistReceipt({
               </div>
               <div className={styles.summaryItemInfo}>
                 <h4>{title}</h4>
-                <p>{groupName} {quantity > 1 ? ` (x${quantity})` : ''}</p>
+                <p>{[groupName, optionLabel].filter(Boolean).join(' · ')} {quantity > 1 ? ` (x${quantity})` : ''}</p>
               </div>
               <div className={styles.summaryItemPrice}>
                 ${(price * quantity).toFixed(2)}

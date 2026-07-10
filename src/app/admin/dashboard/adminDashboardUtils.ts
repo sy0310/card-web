@@ -63,6 +63,9 @@ export type AdminSettings = {
 export type WishlistDraftItem = {
   key: string;
   card_id: string;
+  purchase_option_id?: string | null;
+  option_label_snapshot?: string;
+  unit_price_snapshot?: number | null;
   quantity: string;
 };
 
@@ -72,10 +75,15 @@ export type WishlistCardSummary = {
   price?: number | string;
   image_url?: string;
   group_name?: string;
+  purchase_options?: PurchaseOptionPayload[];
 };
 
 export type WishlistStoredItem = {
   card_id?: string | null;
+  purchase_option_id?: string | null;
+  option_label_snapshot?: string | null;
+  unit_price_snapshot?: number | string | null;
+  cards?: WishlistCardSummary | null;
 };
 
 type ErrorLikeRecord = {
@@ -395,19 +403,66 @@ export function parseWishlistQuantity(value: string) {
   return Math.max(1, Math.floor(parsed));
 }
 
+const getSnapshotPrice = (item: WishlistStoredItem, card?: WishlistCardSummary | null) => {
+  const snapshotPrice = Number(item.unit_price_snapshot);
+  if (Number.isFinite(snapshotPrice) && snapshotPrice >= 0) return parseMoney(String(snapshotPrice));
+
+  const cardPrice = Number(card?.price);
+  return Number.isFinite(cardPrice) && cardPrice >= 0 ? parseMoney(String(cardPrice)) : 0;
+};
+
+const getSelectedOptionPrice = (
+  card: WishlistCardSummary | undefined,
+  purchaseOptionId: string | null | undefined,
+) => {
+  if (!purchaseOptionId) return null;
+  const option = card?.purchase_options?.find(candidate => candidate.id === purchaseOptionId);
+  const optionPrice = Number(option?.price);
+  return Number.isFinite(optionPrice) && optionPrice >= 0 ? parseMoney(String(optionPrice)) : null;
+};
+
+const getWishlistItemUnitPrice = (
+  item: WishlistDraftItem,
+  card?: WishlistCardSummary,
+) => {
+  const snapshotPrice = Number(item.unit_price_snapshot);
+  if (Number.isFinite(snapshotPrice) && snapshotPrice >= 0) return parseMoney(String(snapshotPrice));
+
+  const selectedOptionPrice = getSelectedOptionPrice(card, item.purchase_option_id);
+  if (selectedOptionPrice != null) return selectedOptionPrice;
+
+  const cardPrice = Number(card?.price);
+  return Number.isFinite(cardPrice) && cardPrice >= 0 ? parseMoney(String(cardPrice)) : 0;
+};
+
 export function createWishlistItemsDraft(items: WishlistStoredItem[] = []): WishlistDraftItem[] {
-  const counts = new Map<string, number>();
+  const groups = new Map<string, WishlistDraftItem>();
   for (const item of items) {
     const cardId = trimValue(item.card_id);
     if (!cardId) continue;
-    counts.set(cardId, (counts.get(cardId) ?? 0) + 1);
+
+    const purchaseOptionId = trimValue(item.purchase_option_id) || null;
+    const optionLabel = trimValue(item.option_label_snapshot) || 'Single';
+    const unitPrice = getSnapshotPrice(item, item.cards);
+    const key = `${cardId}:${purchaseOptionId || 'single'}:${unitPrice.toFixed(2)}:${optionLabel}`;
+    const existing = groups.get(key);
+
+    if (existing) {
+      existing.quantity = String(parseWishlistQuantity(existing.quantity) + 1);
+      continue;
+    }
+
+    groups.set(key, {
+      key,
+      card_id: cardId,
+      purchase_option_id: purchaseOptionId,
+      option_label_snapshot: optionLabel,
+      unit_price_snapshot: unitPrice,
+      quantity: '1',
+    });
   }
 
-  return Array.from(counts.entries()).map(([cardId, quantity]) => ({
-    key: cardId,
-    card_id: cardId,
-    quantity: String(quantity),
-  }));
+  return Array.from(groups.values());
 }
 
 export function calculateWishlistTotal(
@@ -416,18 +471,29 @@ export function calculateWishlistTotal(
 ) {
   const total = items.reduce((sum, item) => {
     const card = cardsById.get(item.card_id);
-    return sum + parseMoney(String(card?.price ?? 0)) * parseWishlistQuantity(item.quantity);
+    return sum + getWishlistItemUnitPrice(item, card) * parseWishlistQuantity(item.quantity);
   }, 0);
 
   return Math.round(total * 100) / 100;
 }
 
-export function buildWishlistItemInsertRows(wishlistId: string, items: WishlistDraftItem[]) {
+export function buildWishlistItemInsertRows(
+  wishlistId: string,
+  items: WishlistDraftItem[],
+  cardsById: ReadonlyMap<string, WishlistCardSummary> = new Map(),
+) {
   return items.flatMap(item =>
-    Array.from({ length: parseWishlistQuantity(item.quantity) }, () => ({
-      wishlist_id: wishlistId,
-      card_id: item.card_id,
-    })),
+    Array.from({ length: parseWishlistQuantity(item.quantity) }, () => {
+      const card = cardsById.get(item.card_id);
+      const unitPrice = getWishlistItemUnitPrice(item, card);
+      return {
+        wishlist_id: wishlistId,
+        card_id: item.card_id,
+        purchase_option_id: trimValue(item.purchase_option_id) || null,
+        option_label_snapshot: trimValue(item.option_label_snapshot) || 'Single',
+        unit_price_snapshot: unitPrice,
+      };
+    }),
   );
 }
 

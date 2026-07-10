@@ -59,6 +59,9 @@ type ImageUploadResponse = {
 type WishlistItem = {
   id: string;
   card_id: string;
+  purchase_option_id?: string | null;
+  option_label_snapshot?: string | null;
+  unit_price_snapshot?: number | string | null;
   cards?: AdminCard | null;
 };
 
@@ -83,6 +86,7 @@ function getInventoryPurchaseOptions(card: AdminCard): PurchaseOptionPayload[] {
   const options = card.purchase_options ?? [];
   if (options.length === 0) {
     return [{
+      id: `fallback-${card.id}`,
       card_id: card.id,
       label: 'Single',
       price: Number(card.price) || 0,
@@ -99,6 +103,26 @@ function getInventoryPurchaseOptions(card: AdminCard): PurchaseOptionPayload[] {
     const bSort = Number(b.sort_order);
     return (Number.isFinite(aSort) ? aSort : 0) - (Number.isFinite(bSort) ? bSort : 0);
   });
+}
+
+function getDefaultInventoryPurchaseOption(card: AdminCard): PurchaseOptionPayload {
+  const options = getInventoryPurchaseOptions(card);
+  return options.find(option => option.is_active && option.is_default)
+    ?? options.find(option => option.is_active)
+    ?? options[0];
+}
+
+function getSelectedInventoryPurchaseOption(
+  card: AdminCard,
+  purchaseOptionId?: string | null,
+) {
+  const options = getInventoryPurchaseOptions(card);
+  return options.find(option => option.id === purchaseOptionId)
+    ?? getDefaultInventoryPurchaseOption(card);
+}
+
+function getPersistentPurchaseOptionId(optionId?: string | null) {
+  return optionId && !optionId.startsWith('fallback-') ? optionId : null;
 }
 
 export default function AdminDashboard() {
@@ -235,7 +259,9 @@ export default function AdminDashboard() {
       lineItems.push({
         id: item.key,
         title: card.title || 'Untitled card',
-        price: Number(card.price) || 0,
+        price: Number(item.unit_price_snapshot ?? card.price) || 0,
+        unit_price: Number(item.unit_price_snapshot ?? card.price) || 0,
+        option_label: item.option_label_snapshot || 'Single',
         image_url: card.image_url || '',
         group_name: card.group_name || card.member_name || card.album_era || '',
         quantity: parseWishlistQuantity(item.quantity),
@@ -818,7 +844,10 @@ export default function AdminDashboard() {
 
   const updateWishlistDraftItem = (
     key: string,
-    patch: Partial<Pick<WishlistDraftItem, 'card_id' | 'quantity'>>,
+    patch: Partial<Pick<
+      WishlistDraftItem,
+      'card_id' | 'purchase_option_id' | 'option_label_snapshot' | 'unit_price_snapshot' | 'quantity'
+    >>,
   ) => {
     setWishlistDraft(current => current ? {
       ...current,
@@ -833,17 +862,28 @@ export default function AdminDashboard() {
       return;
     }
 
+    const selectedCard = cardsById.get(targetCardId);
+    const defaultOption = selectedCard ? getDefaultInventoryPurchaseOption(selectedCard) : undefined;
+    const purchaseOptionId = getPersistentPurchaseOptionId(defaultOption?.id);
+    const optionLabel = defaultOption?.label || 'Single';
+    const unitPrice = Number(defaultOption?.price ?? selectedCard?.price ?? 0) || 0;
+
     setWishlistDraft(current => current ? {
       ...current,
-      items: current.items.some(item => item.card_id === targetCardId)
-        ? current.items.map(item => item.card_id === targetCardId
+      items: current.items.some(item => (
+        item.card_id === targetCardId && item.purchase_option_id === purchaseOptionId
+      ))
+        ? current.items.map(item => item.card_id === targetCardId && item.purchase_option_id === purchaseOptionId
           ? { ...item, quantity: String(parseWishlistQuantity(item.quantity) + 1) }
           : item)
         : [
             ...current.items,
             {
-              key: createWishlistDraftKey(),
+              key: `${targetCardId}:${purchaseOptionId || 'single'}:${createWishlistDraftKey()}`,
               card_id: targetCardId,
+              purchase_option_id: purchaseOptionId,
+              option_label_snapshot: optionLabel,
+              unit_price_snapshot: unitPrice,
               quantity: '1',
             },
           ],
@@ -912,7 +952,7 @@ export default function AdminDashboard() {
 
       if (deleteItemsError) throw deleteItemsError;
 
-      const itemRows = buildWishlistItemInsertRows(editingWishlist.id, validItems);
+      const itemRows = buildWishlistItemInsertRows(editingWishlist.id, validItems, cardsById);
       if (itemRows.length > 0) {
         const { error: insertItemsError } = await supabase
           .from('wishlist_items')
@@ -1610,7 +1650,19 @@ export default function AdminDashboard() {
                           )}
                           <select
                             value={item.card_id}
-                            onChange={event => updateWishlistDraftItem(item.key, { card_id: event.target.value })}
+                            onChange={event => {
+                              const nextCardId = event.target.value;
+                              const nextCard = cardsById.get(nextCardId);
+                              const nextOption = nextCard
+                                ? getDefaultInventoryPurchaseOption(nextCard)
+                                : undefined;
+                              updateWishlistDraftItem(item.key, {
+                                card_id: nextCardId,
+                                purchase_option_id: getPersistentPurchaseOptionId(nextOption?.id),
+                                option_label_snapshot: nextOption?.label || 'Single',
+                                unit_price_snapshot: Number(nextOption?.price ?? nextCard?.price ?? 0) || 0,
+                              });
+                            }}
                           >
                             <option value="">Select a card</option>
                             {cardOptions.map(card => (
@@ -1619,6 +1671,34 @@ export default function AdminDashboard() {
                               </option>
                             ))}
                           </select>
+                          <select
+                            value={item.purchase_option_id || ''}
+                            onChange={event => {
+                              if (!selectedCard) return;
+                              const selectedOption = getSelectedInventoryPurchaseOption(
+                                selectedCard,
+                                event.target.value,
+                              );
+                              updateWishlistDraftItem(item.key, {
+                                purchase_option_id: getPersistentPurchaseOptionId(selectedOption?.id),
+                                option_label_snapshot: selectedOption?.label || 'Single',
+                                unit_price_snapshot: Number(selectedOption?.price ?? selectedCard.price ?? 0) || 0,
+                              });
+                            }}
+                            aria-label="Purchase option"
+                          >
+                            {selectedCard ? getInventoryPurchaseOptions(selectedCard).map(option => (
+                              <option key={option.id || `${selectedCard.id}-fallback`} value={getPersistentPurchaseOptionId(option.id) || ''}>
+                                {option.label} - ${Number(option.price || 0).toFixed(2)}
+                              </option>
+                            )) : (
+                              <option value="">Select a card first</option>
+                            )}
+                          </select>
+                          <span className={styles.orderItemPrice}>
+                            ${(Number(item.unit_price_snapshot) || 0).toFixed(2)} × {parseWishlistQuantity(item.quantity)} = $
+                            {((Number(item.unit_price_snapshot) || 0) * parseWishlistQuantity(item.quantity)).toFixed(2)}
+                          </span>
                           <input
                             type="number"
                             min="1"
