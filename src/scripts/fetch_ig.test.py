@@ -1,6 +1,8 @@
 import importlib.util
+import os
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 def load_fetch_ig_module():
@@ -107,6 +109,16 @@ class SavedSettingsFallbackClient(SessionFallbackClient):
     def set_settings(self, settings):
         self.calls.append(("set_settings", settings))
         self.settings.update(settings)
+
+
+class Account:
+    username = "test_account"
+
+
+class ConnectionClient(BaseFakeClient):
+    def account_info(self):
+        self.calls.append(("account_info",))
+        return Account()
 
 
 class LegacyRetryClient:
@@ -224,6 +236,47 @@ class FetchInstagramMediaTest(unittest.TestCase):
         self.assertEqual(result["imageUrl"], "https://cdn.example.test/card.jpg")
         self.assertEqual(client.calls[-2][0], "set_settings")
         self.assertEqual(client.calls[-1], ("media_info", "123456789", False))
+
+    def test_database_runtime_settings_override_environment_field_by_field(self):
+        with patch.dict(
+            os.environ,
+            {
+                "INSTAGRAM_SESSION_ID": "environment-session",
+                "INSTAGRAM_SETTINGS_JSON": "environment-settings",
+                "INSTAGRAM_SETTINGS_FILE": "",
+                "session_id": "",
+                "SESSION_ID": "",
+                "IG_SETTINGS_JSON": "",
+                "IG_SETTINGS_FILE": "",
+                "proxy": "",
+                "PROXY": "",
+                "HTTPS_PROXY": "https://environment-proxy.example.test",
+                "HTTP_PROXY": "",
+            },
+            clear=True,
+        ), patch.object(
+            self.module,
+            "_load_database_runtime_settings",
+            return_value={
+                "session_id": "database-session",
+                "settings_json": "database-settings",
+                "proxy": None,
+            },
+        ):
+            settings = self.module.get_instagram_runtime_settings()
+
+        self.assertEqual(settings["session_id"], "database-session")
+        self.assertEqual(settings["settings_json"], "database-settings")
+        self.assertEqual(settings["proxy"], "https://environment-proxy.example.test")
+
+    def test_connection_test_uses_saved_session_without_media_lookup(self):
+        result = self.module.test_instagram_connection(
+            session_id="2935954956%3Along-session-value",
+            client_factory=ConnectionClient,
+        )
+
+        self.assertEqual(result, {"success": True, "username": "test_account"})
+        self.assertEqual(ConnectionClient.last_instance.calls[-1], ("account_info",))
 
 
 if __name__ == "__main__":

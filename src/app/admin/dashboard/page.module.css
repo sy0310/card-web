@@ -921,6 +921,102 @@
   padding: 1.2rem;
 }
 
+.fieldHint {
+  display: block;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.instagramStatusCard {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 0.9rem;
+  padding: 0.85rem;
+  border: 1px solid rgba(15, 118, 110, 0.14);
+  border-radius: 8px;
+  background: rgba(236, 253, 245, 0.55);
+}
+
+.instagramStatusCard strong {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.86rem;
+}
+
+.instagramStatusOk {
+  color: #0f766e;
+}
+
+.instagramStatusMuted {
+  color: var(--text-muted);
+}
+
+.instagramStatusError {
+  color: #b4234f;
+}
+
+.instagramActions,
+.instagramSyncBox {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.7rem;
+  margin-top: 0.9rem;
+}
+
+.instagramSyncBox {
+  align-items: stretch;
+  padding-top: 0.9rem;
+  border-top: 1px solid rgba(125, 83, 222, 0.1);
+}
+
+.instagramSyncBox .field {
+  flex: 1;
+}
+
+.instagramLogList {
+  display: grid;
+  gap: 0.65rem;
+  margin-bottom: 0.9rem;
+}
+
+.instagramLogRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid rgba(125, 83, 222, 0.1);
+}
+
+.instagramLogRow:last-child {
+  border-bottom: none;
+}
+
+.instagramLogRow strong,
+.instagramLogRow span,
+.instagramLogMeta {
+  display: block;
+  font-size: 0.78rem;
+}
+
+.instagramLogRow span {
+  margin-top: 0.25rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.instagramLogMeta {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+.instagramLogMeta time {
+  display: block;
+  margin-top: 0.25rem;
+}
+
 .panelHeader {
   display: flex;
   align-items: center;
@@ -1026,6 +1122,10 @@
 
   .settingsPreview {
     position: static;
+  }
+
+  .instagramStatusCard {
+    grid-template-columns: 1fr;
   }
 }
 

@@ -86,6 +86,39 @@ type WishlistEditDraft = {
   items: WishlistDraftItem[];
 };
 
+type InstagramSettingsStatusResponse = {
+  status?: {
+    configured: boolean;
+    database_session_configured: boolean;
+    database_settings_configured: boolean;
+    database_proxy_configured: boolean;
+    environment_fallback_configured: boolean;
+    updated_at: string | null;
+  };
+  error?: string;
+};
+
+type InstagramSyncLog = {
+  id: string;
+  status: 'running' | 'success' | 'failed';
+  message: string | null;
+  posts_found: number | null;
+  created_at: string;
+  started_at: string;
+  finished_at: string | null;
+};
+
+type InstagramSyncLogsResponse = {
+  logs?: InstagramSyncLog[];
+  error?: string;
+};
+
+type InstagramConnectionResponse = {
+  success?: boolean;
+  username?: string | null;
+  error?: string;
+};
+
 function getPersistentPurchaseOptionId(optionId?: string | null) {
   return optionId && !optionId.startsWith('fallback-') ? optionId : null;
 }
@@ -129,6 +162,15 @@ export default function AdminDashboard() {
     update_inventory_count: false,
   });
   const [statusMessage, setStatusMessage] = useState('');
+  const [instagramStatus, setInstagramStatus] = useState<InstagramSettingsStatusResponse['status'] | null>(null);
+  const [instagramSyncLogs, setInstagramSyncLogs] = useState<InstagramSyncLog[]>([]);
+  const [instagramSessionInput, setInstagramSessionInput] = useState('');
+  const [instagramSettingsJsonInput, setInstagramSettingsJsonInput] = useState('');
+  const [instagramProxyInput, setInstagramProxyInput] = useState('');
+  const [instagramSyncUrl, setInstagramSyncUrl] = useState('');
+  const [savingInstagramSettings, setSavingInstagramSettings] = useState(false);
+  const [testingInstagramConnection, setTestingInstagramConnection] = useState(false);
+  const [syncingInstagram, setSyncingInstagram] = useState(false);
   const router = useRouter();
   const [searchTerm, setSearchTerm] = useState('');
   const [wishlistSearchTerm, setWishlistSearchTerm] = useState('');
@@ -379,9 +421,30 @@ export default function AdminDashboard() {
     }
   }, []);
 
+  const fetchInstagramData = useCallback(async () => {
+    try {
+      const [settingsResult, logsResult] = await Promise.all([
+        fetchAdminJsonWithRetry<InstagramSettingsStatusResponse>('/api/admin/instagram-settings'),
+        fetchAdminJsonWithRetry<InstagramSyncLogsResponse>('/api/admin/instagram-sync-logs'),
+      ]);
+
+      if (!settingsResult.response.ok || settingsResult.data.error || !settingsResult.data.status) {
+        throw new Error(settingsResult.data.error || 'Could not load Instagram settings.');
+      }
+      if (!logsResult.response.ok || logsResult.data.error) {
+        throw new Error(logsResult.data.error || 'Could not load Instagram sync history.');
+      }
+
+      setInstagramStatus(settingsResult.data.status);
+      setInstagramSyncLogs(logsResult.data.logs ?? []);
+    } catch (error: unknown) {
+      setStatusMessage(`Instagram settings unavailable: ${formatAdminFetchError(error, 'Loading Instagram settings')}`);
+    }
+  }, []);
+
   const fetchData = useCallback(async () => {
-    await Promise.all([fetchCards(), fetchWishlists(), fetchSettings()]);
-  }, [fetchCards, fetchSettings, fetchWishlists]);
+    await Promise.all([fetchCards(), fetchWishlists(), fetchSettings(), fetchInstagramData()]);
+  }, [fetchCards, fetchInstagramData, fetchSettings, fetchWishlists]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
@@ -431,6 +494,97 @@ export default function AdminDashboard() {
       setStatusMessage('Settings saved.');
     }
     setSavingSettings(false);
+  };
+
+  const handleSaveInstagramSettings = async () => {
+    const payload: Record<string, unknown> = {};
+    if (instagramSessionInput.trim()) payload.session_id = instagramSessionInput.trim();
+    if (instagramSettingsJsonInput.trim()) payload.settings_json = instagramSettingsJsonInput.trim();
+    if (instagramProxyInput.trim()) payload.proxy = instagramProxyInput.trim();
+
+    if (Object.keys(payload).length === 0) {
+      setStatusMessage('Enter a new Instagram session, saved settings JSON, or proxy before saving.');
+      return;
+    }
+
+    setSavingInstagramSettings(true);
+    setStatusMessage('');
+    try {
+      const { response, data } = await fetchAdminJsonWithRetry<InstagramSettingsStatusResponse>(
+        '/api/admin/instagram-settings',
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        },
+      );
+
+      if (!response.ok || data.error || !data.status) {
+        throw new Error(data.error || 'Instagram settings could not be saved.');
+      }
+
+      setInstagramStatus(data.status);
+      setInstagramSessionInput('');
+      setInstagramSettingsJsonInput('');
+      setInstagramProxyInput('');
+      setStatusMessage('Instagram settings saved. The next sync will use the database configuration.');
+    } catch (error: unknown) {
+      setStatusMessage(`Error saving Instagram settings: ${formatAdminFetchError(error, 'Saving Instagram settings')}`);
+    } finally {
+      setSavingInstagramSettings(false);
+    }
+  };
+
+  const handleTestInstagramConnection = async () => {
+    setTestingInstagramConnection(true);
+    setStatusMessage('');
+    try {
+      const { response, data } = await fetchAdminJsonWithRetry<InstagramConnectionResponse>(
+        '/api/admin/instagram-settings/test',
+        { method: 'POST' },
+      );
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Instagram connection failed.');
+      }
+      setStatusMessage(data.username ? `Instagram connected as @${data.username.replace(/^@/, '')}.` : 'Instagram connection succeeded.');
+      await fetchInstagramData();
+    } catch (error: unknown) {
+      setStatusMessage(`Instagram connection failed: ${formatAdminFetchError(error, 'Testing Instagram connection')}`);
+    } finally {
+      setTestingInstagramConnection(false);
+    }
+  };
+
+  const handleSyncInstagram = async () => {
+    const url = instagramSyncUrl.trim();
+    if (!url) {
+      setStatusMessage('Paste an Instagram post or reel URL before syncing.');
+      return;
+    }
+
+    setSyncingInstagram(true);
+    setStatusMessage('Syncing Instagram post...');
+    try {
+      const { response, data } = await fetchAdminJsonWithRetry<{ success?: boolean; error?: string }>(
+        '/api/admin/cards/sync-instagram',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url }),
+        },
+      );
+      if (!response.ok || data.error || !data.success) {
+        throw new Error(data.error || 'Instagram sync failed.');
+      }
+      setInstagramSyncUrl('');
+      setStatusMessage('Instagram post synced successfully.');
+      await Promise.all([fetchCards(), fetchInstagramData()]);
+    } catch (error: unknown) {
+      setStatusMessage(`Instagram sync failed: ${formatAdminFetchError(error, 'Syncing Instagram')}`);
+      await fetchInstagramData();
+    } finally {
+      setSyncingInstagram(false);
+    }
   };
 
 
@@ -2207,6 +2361,141 @@ export default function AdminDashboard() {
                       onChange={event => setSettings({ ...settings, low_stock_threshold: event.target.value })}
                     />
                   </label>
+                </section>
+
+                <section className={styles.settingsPanel}>
+                  <div className={styles.panelHeader}>
+                    <span>04</span>
+                    <h2>Instagram Connection</h2>
+                  </div>
+                  <div className={styles.instagramStatusCard}>
+                    <div>
+                      <span className={styles.fieldHint}>Current status</span>
+                      <strong className={instagramStatus?.configured ? styles.instagramStatusOk : styles.instagramStatusMuted}>
+                        {instagramStatus?.configured ? 'Configured' : 'Not configured'}
+                      </strong>
+                    </div>
+                    <div>
+                      <span className={styles.fieldHint}>Source</span>
+                      <strong>
+                        {instagramStatus?.database_session_configured || instagramStatus?.database_settings_configured
+                          ? 'Database'
+                          : instagramStatus?.environment_fallback_configured ? 'Environment fallback' : 'None'}
+                      </strong>
+                    </div>
+                    <div>
+                      <span className={styles.fieldHint}>Last updated</span>
+                      <strong>
+                        {instagramStatus?.updated_at
+                          ? new Date(instagramStatus.updated_at).toLocaleString()
+                          : '—'}
+                      </strong>
+                    </div>
+                  </div>
+                  <p className={styles.fieldHint}>
+                    The session is stored server-side and is never returned to the browser. Leave a field blank to keep its current value.
+                  </p>
+                  <label className={styles.field}>
+                    <span>New Instagram session ID</span>
+                    <input
+                      type="password"
+                      autoComplete="new-password"
+                      value={instagramSessionInput}
+                      onChange={event => setInstagramSessionInput(event.target.value)}
+                      placeholder="Paste a fresh session ID"
+                    />
+                  </label>
+                  <label className={styles.field}>
+                    <span>Saved settings JSON (optional)</span>
+                    <textarea
+                      rows={4}
+                      value={instagramSettingsJsonInput}
+                      onChange={event => setInstagramSettingsJsonInput(event.target.value)}
+                      placeholder='{"cookies": {"sessionid": "..."}}'
+                      spellCheck={false}
+                    />
+                  </label>
+                  <label className={styles.field}>
+                    <span>Proxy URL (optional)</span>
+                    <input
+                      type="password"
+                      autoComplete="new-password"
+                      value={instagramProxyInput}
+                      onChange={event => setInstagramProxyInput(event.target.value)}
+                      placeholder="https://user:password@host:port"
+                    />
+                  </label>
+                  <div className={styles.instagramActions}>
+                    <button
+                      type="button"
+                      className={styles.addBtn}
+                      onClick={() => void handleSaveInstagramSettings()}
+                      disabled={savingInstagramSettings}
+                    >
+                      {savingInstagramSettings ? 'Saving...' : 'Save Instagram settings'}
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.secondaryBtn}
+                      onClick={() => void handleTestInstagramConnection()}
+                      disabled={testingInstagramConnection}
+                    >
+                      {testingInstagramConnection ? 'Testing...' : 'Test connection'}
+                    </button>
+                  </div>
+                  <div className={styles.instagramSyncBox}>
+                    <label className={styles.field}>
+                      <span>Sync a post or reel URL</span>
+                      <input
+                        type="url"
+                        value={instagramSyncUrl}
+                        onChange={event => setInstagramSyncUrl(event.target.value)}
+                        placeholder="https://www.instagram.com/p/..."
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className={styles.secondaryBtn}
+                      onClick={() => void handleSyncInstagram()}
+                      disabled={syncingInstagram}
+                    >
+                      {syncingInstagram ? 'Syncing...' : 'Sync post'}
+                    </button>
+                  </div>
+                </section>
+
+                <section className={styles.settingsPanel}>
+                  <div className={styles.panelHeader}>
+                    <span>05</span>
+                    <h2>Instagram Sync History</h2>
+                  </div>
+                  {instagramSyncLogs.length > 0 ? (
+                    <div className={styles.instagramLogList}>
+                      {instagramSyncLogs.map(log => (
+                        <div key={log.id} className={styles.instagramLogRow}>
+                          <div>
+                            <strong className={log.status === 'success' ? styles.instagramStatusOk : log.status === 'failed' ? styles.instagramStatusError : styles.instagramStatusMuted}>
+                              {log.status.toUpperCase()}
+                            </strong>
+                            <span>{log.message || 'No message'}</span>
+                          </div>
+                          <div className={styles.instagramLogMeta}>
+                            {log.posts_found == null ? '—' : `${log.posts_found} post${log.posts_found === 1 ? '' : 's'}`}
+                            <time dateTime={log.created_at}>{new Date(log.created_at).toLocaleString()}</time>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className={styles.fieldHint}>No Instagram sync attempts recorded yet.</p>
+                  )}
+                  <button
+                    type="button"
+                    className={styles.secondaryBtn}
+                    onClick={() => void fetchInstagramData()}
+                  >
+                    Refresh Instagram status
+                  </button>
                 </section>
               </div>
 

@@ -3,6 +3,7 @@ import {
   authenticateAdminRequest,
   formatSupabaseAdminWriteError,
 } from '@/lib/server/supabaseAdmin';
+import { getInstagramFetchInternalSecret } from '@/lib/server/instagramSettings';
 import { buildCardImagePath } from '../upload/uploadCardUtils';
 import { parseInstagramCaption, parseInstagramMediaInput } from './syncInstagramUtils';
 
@@ -17,6 +18,52 @@ type InstagramFetchResult = {
   retryable?: boolean;
   detail?: string;
 };
+
+type SyncLogStatus = 'running' | 'success' | 'failed';
+
+function errorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.replace(/[\r\n]+/g, ' ').slice(0, 1000) || 'Instagram sync failed.';
+}
+
+async function createSyncLog(supabaseAdmin: ReturnType<typeof import('@/lib/server/supabaseAdmin').createSupabaseAdminClient>) {
+  const { data, error } = await supabaseAdmin
+    .from('instagram_sync_logs')
+    .insert({ status: 'running', message: 'Instagram sync started.', started_at: new Date().toISOString() })
+    .select('id')
+    .single();
+
+  if (error) {
+    console.warn('Could not create Instagram sync log. Run the Instagram management migration.', error.message);
+    return null;
+  }
+
+  return data?.id ?? null;
+}
+
+async function updateSyncLog(
+  supabaseAdmin: ReturnType<typeof import('@/lib/server/supabaseAdmin').createSupabaseAdminClient>,
+  id: string | null,
+  status: SyncLogStatus,
+  message: string,
+  postsFound?: number,
+) {
+  if (!id) return;
+
+  const { error } = await supabaseAdmin
+    .from('instagram_sync_logs')
+    .update({
+      status,
+      message: message.replace(/[\r\n]+/g, ' ').slice(0, 1000),
+      posts_found: postsFound ?? null,
+      finished_at: new Date().toISOString(),
+    })
+    .eq('id', id);
+
+  if (error) {
+    console.warn('Could not update Instagram sync log:', error.message);
+  }
+}
 
 function formatInstagramFetchError(fetchResult: InstagramFetchResult) {
   if (fetchResult.error) return fetchResult.error;
@@ -33,11 +80,15 @@ function formatInstagramFetchError(fetchResult: InstagramFetchResult) {
 }
 
 export async function POST(request: NextRequest) {
+  let syncLogId: string | null = null;
+  let supabaseAdmin: ReturnType<typeof import('@/lib/server/supabaseAdmin').createSupabaseAdminClient> | null = null;
+
   try {
     const auth = await authenticateAdminRequest(request);
     if (!auth.ok) {
       return NextResponse.json({ error: auth.error }, { status: auth.status });
     }
+    supabaseAdmin = auth.supabaseAdmin;
 
     const { url } = await request.json();
     if (!url || typeof url !== 'string') {
@@ -54,6 +105,17 @@ export async function POST(request: NextRequest) {
 
     const { mediaCode } = mediaRef;
     const standardIgUrl = mediaRef.originalUrl;
+    syncLogId = await createSyncLog(auth.supabaseAdmin);
+
+    const fail = async (payload: Record<string, unknown>, status: number) => {
+      await updateSyncLog(
+        auth.supabaseAdmin,
+        syncLogId,
+        'failed',
+        typeof payload.error === 'string' ? payload.error : 'Instagram sync failed.',
+      );
+      return NextResponse.json(payload, { status });
+    };
 
     // Check if duplicate
     const { data: existing, error: queryError } = await auth.supabaseAdmin
@@ -63,10 +125,10 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
 
     if (queryError) {
-      return NextResponse.json({ error: queryError.message }, { status: 500 });
+      return fail({ error: queryError.message }, 500);
     }
     if (existing) {
-      return NextResponse.json({ error: 'This card has already been synced from Instagram.' }, { status: 400 });
+      return fail({ error: 'This card has already been synced from Instagram.' }, 400);
     }
 
     // Call /api/fetch_ig Python serverless API
@@ -76,6 +138,7 @@ export async function POST(request: NextRequest) {
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
+        'X-Instagram-Internal-Secret': getInstagramFetchInternalSecret(),
       },
       body: JSON.stringify({ mediaCode }),
     });
@@ -89,9 +152,9 @@ export async function POST(request: NextRequest) {
         status: fetchRes.status,
         body: bodyText.slice(0, 500),
       });
-      return NextResponse.json({ 
+      return fail({
         error: `Instagram sync service returned an unexpected response (status ${fetchRes.status}).`,
-      }, { status: 500 });
+      }, 500);
     }
 
     if (!fetchRes.ok || fetchResult.error || !fetchResult.imageUrl) {
@@ -103,11 +166,11 @@ export async function POST(request: NextRequest) {
           detail: fetchResult.detail,
         });
       }
-      return NextResponse.json({
+      return fail({
         error: formatInstagramFetchError(fetchResult),
         code: fetchResult.code,
         retryable: fetchResult.retryable,
-      }, { status });
+      }, status);
     }
 
     const { caption, imageUrl } = fetchResult;
@@ -118,7 +181,7 @@ export async function POST(request: NextRequest) {
     // Download image from imageUrl
     const imageResponse = await fetch(imageUrl);
     if (!imageResponse.ok) {
-      return NextResponse.json({ error: `Failed to download Instagram image: ${imageResponse.statusText}` }, { status: 500 });
+      return fail({ error: `Failed to download Instagram image: ${imageResponse.statusText}` }, 500);
     }
 
     const fileType = imageResponse.headers.get('content-type') || 'image/jpeg';
@@ -134,9 +197,9 @@ export async function POST(request: NextRequest) {
     });
 
     if (uploadError) {
-      return NextResponse.json(
+      return fail(
         { error: `Storage upload failed: ${formatSupabaseAdminWriteError(uploadError)}` },
-        { status: 500 },
+        500,
       );
     }
 
@@ -166,17 +229,22 @@ export async function POST(request: NextRequest) {
     if (dbError) {
       // Cleanup uploaded file
       await auth.supabaseAdmin.storage.from('cards').remove([filePath]);
-      return NextResponse.json(
+      return fail(
         { error: formatSupabaseAdminWriteError(dbError) },
-        { status: 500 },
+        500,
       );
     }
+
+    await updateSyncLog(auth.supabaseAdmin, syncLogId, 'success', 'Instagram sync completed.', 1);
 
     return NextResponse.json({
       success: true,
       card,
     });
   } catch (err: unknown) {
+    if (supabaseAdmin) {
+      await updateSyncLog(supabaseAdmin, syncLogId, 'failed', errorMessage(err));
+    }
     console.error('Instagram sync route failed', err);
     return NextResponse.json({ error: 'Instagram sync failed. Please try again.' }, { status: 500 });
   }

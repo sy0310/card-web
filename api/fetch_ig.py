@@ -1,9 +1,13 @@
 from http.server import BaseHTTPRequestHandler
 import json
+import hashlib
+import hmac
 import os
 import re
 import sys
 import traceback
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 # Load local .env.local values as fallback for development
 try:
@@ -93,6 +97,108 @@ def _float_env(key, default):
         return default
 
 
+def _environment_runtime_settings():
+    return {
+        "session_id": (
+            os.environ.get("session_id")
+            or os.environ.get("SESSION_ID")
+            or os.environ.get("INSTAGRAM_SESSION_ID")
+        ),
+        "settings_json": (
+            os.environ.get("INSTAGRAM_SETTINGS_JSON")
+            or os.environ.get("IG_SETTINGS_JSON")
+        ),
+        "settings_file": (
+            os.environ.get("INSTAGRAM_SETTINGS_FILE")
+            or os.environ.get("IG_SETTINGS_FILE")
+        ),
+        "proxy": (
+            os.environ.get("proxy")
+            or os.environ.get("PROXY")
+            or os.environ.get("HTTPS_PROXY")
+            or os.environ.get("HTTP_PROXY")
+        ),
+    }
+
+
+def _load_database_runtime_settings():
+    """Read the latest server-only Instagram settings from Supabase.
+
+    The Python function runs separately from the Next.js server, so it cannot
+    reuse the Node Supabase client. It uses the service-role REST endpoint when
+    configured and returns an empty dict on any infrastructure error, allowing
+    the environment fallback to keep working during rollout.
+    """
+    supabase_url = (os.environ.get("NEXT_PUBLIC_SUPABASE_URL") or "").strip().rstrip("/")
+    service_role_key = (os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
+    if not supabase_url or not service_role_key:
+        return {}
+
+    query = urlencode({
+        "select": "session_id,settings_json,proxy",
+        "order": "updated_at.desc",
+        "limit": "1",
+    })
+    request = Request(
+        f"{supabase_url}/rest/v1/instagram_settings?{query}",
+        headers={
+            "apikey": service_role_key,
+            "Authorization": f"Bearer {service_role_key}",
+            "Accept": "application/json",
+        },
+        method="GET",
+    )
+
+    try:
+        with urlopen(request, timeout=5) as response:
+            rows = json.loads(response.read().decode("utf-8"))
+        if not isinstance(rows, list) or not rows:
+            return {}
+
+        row = rows[0]
+        if not isinstance(row, dict):
+            return {}
+
+        settings_json = row.get("settings_json")
+        if isinstance(settings_json, (dict, list)):
+            settings_json = json.dumps(settings_json)
+
+        return {
+            "session_id": row.get("session_id") or None,
+            "settings_json": settings_json or None,
+            "proxy": row.get("proxy") or None,
+        }
+    except Exception:
+        # Do not log response bodies or credentials. The caller will use env
+        # values, which preserves the pre-migration behavior.
+        print(
+            "Instagram database settings lookup failed; using environment fallback.",
+            file=sys.stderr,
+        )
+        return {}
+
+
+def get_instagram_runtime_settings():
+    environment_settings = _environment_runtime_settings()
+    database_settings = _load_database_runtime_settings()
+    return {
+        key: database_settings.get(key) or environment_settings.get(key)
+        for key in environment_settings
+    }
+
+
+def _has_valid_internal_secret(headers):
+    service_role_key = (os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
+    provided_secret = headers.get("X-Instagram-Internal-Secret", "")
+    if not service_role_key or not provided_secret:
+        return False
+
+    expected_secret = hashlib.sha256(
+        f"{service_role_key}:instagram-fetch".encode("utf-8")
+    ).hexdigest()
+    return hmac.compare_digest(provided_secret, expected_secret)
+
+
 def _summarize_exception(exc):
     message = str(exc).strip().replace("\n", " ")
     message = re.sub(r"https://www\.instagram\.com/graphql/query/\?\S+", "Instagram GraphQL endpoint", message)
@@ -118,7 +224,7 @@ def _apply_saved_settings(client, settings_json=None, settings_file=None):
 
     if settings_json:
         try:
-            settings = json.loads(settings_json)
+            settings = json.loads(settings_json) if isinstance(settings_json, str) else settings_json
         except Exception as exc:
             raise InstagramSyncError(
                 "Configured Instagram saved settings JSON is invalid.",
@@ -147,6 +253,69 @@ def _apply_saved_settings(client, settings_json=None, settings_file=None):
         return True
 
     return False
+
+
+def test_instagram_connection(
+    session_id=None,
+    proxy=None,
+    settings_json=None,
+    settings_file=None,
+    client_factory=_new_client,
+):
+    try:
+        client = client_factory()
+    except Exception as exc:
+        detail = _summarize_exception(exc)
+        raise InstagramSyncError(
+            "Instagram sync client failed to start.",
+            status_code=500,
+            code="instagram_client_start_failed",
+            detail=detail,
+        )
+
+    if proxy:
+        try:
+            client.set_proxy(proxy)
+        except Exception as exc:
+            raise InstagramSyncError(
+                "Configured Instagram proxy is invalid.",
+                status_code=500,
+                code="instagram_proxy_invalid",
+                detail=_summarize_exception(exc),
+            )
+
+    has_saved_settings = _apply_saved_settings(
+        client,
+        settings_json=settings_json,
+        settings_file=settings_file,
+    )
+    if not has_saved_settings and not session_id:
+        raise InstagramSyncError(
+            "Instagram session is not configured.",
+            status_code=500,
+            code="instagram_session_missing",
+        )
+
+    if not has_saved_settings:
+        _attach_session_without_validation(client, session_id)
+
+    try:
+        account = client.account_info()
+    except Exception as exc:
+        detail = _summarize_exception(exc)
+        raise InstagramSyncError(
+            "Instagram connection failed. Refresh the session or saved settings.",
+            status_code=502,
+            code="instagram_connection_failed",
+            retryable=True,
+            detail=detail,
+        )
+
+    username = getattr(account, "username", None)
+    return {
+        "success": True,
+        "username": str(username) if username else None,
+    }
 
 
 def _set_client_settings(client, settings):
@@ -335,28 +504,38 @@ def fetch_instagram_media(
 class handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
+            if not _has_valid_internal_secret(self.headers):
+                self._send_json({'error': 'Instagram sync service is not publicly accessible.'}, 401)
+                return
+
             # 1. Read request body
             content_length = int(self.headers.get('Content-Length', 0))
             post_data = self.rfile.read(content_length)
             data = json.loads(post_data.decode('utf-8'))
             
             media_code = data.get('mediaCode')
+            runtime_settings = get_instagram_runtime_settings()
+
+            if data.get("action") == "testConnection":
+                res_data = test_instagram_connection(
+                    session_id=runtime_settings.get("session_id"),
+                    proxy=runtime_settings.get("proxy"),
+                    settings_json=runtime_settings.get("settings_json"),
+                    settings_file=runtime_settings.get("settings_file"),
+                )
+                self._send_json(res_data, 200)
+                return
+
             if not media_code:
                 self._send_json({'error': 'Missing mediaCode'}, 400)
                 return
-            
-            # 2. Get credentials from environment
-            session_id = os.environ.get('session_id') or os.environ.get('SESSION_ID') or os.environ.get('INSTAGRAM_SESSION_ID')
-            settings_json = os.environ.get('INSTAGRAM_SETTINGS_JSON') or os.environ.get('IG_SETTINGS_JSON')
-            settings_file = os.environ.get('INSTAGRAM_SETTINGS_FILE') or os.environ.get('IG_SETTINGS_FILE')
-            proxy = os.environ.get('proxy') or os.environ.get('PROXY') or os.environ.get('HTTPS_PROXY') or os.environ.get('HTTP_PROXY')
 
             res_data = fetch_instagram_media(
                 media_code,
-                session_id=session_id,
-                proxy=proxy,
-                settings_json=settings_json,
-                settings_file=settings_file,
+                session_id=runtime_settings.get("session_id"),
+                proxy=runtime_settings.get("proxy"),
+                settings_json=runtime_settings.get("settings_json"),
+                settings_file=runtime_settings.get("settings_file"),
             )
             self._send_json(res_data, 200)
 
