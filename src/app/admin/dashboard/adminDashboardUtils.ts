@@ -78,6 +78,12 @@ export type WishlistCardSummary = {
   purchase_options?: PurchaseOptionPayload[];
 };
 
+export type AdminPurchaseOptionCard = {
+  id: string;
+  price: number | string;
+  purchase_options?: PurchaseOptionPayload[];
+};
+
 export type WishlistStoredItem = {
   card_id?: string | null;
   purchase_option_id?: string | null;
@@ -116,6 +122,56 @@ const parseMoney = (value: string) => {
   if (!Number.isFinite(parsed) || parsed < 0) return 0;
   return Math.round(parsed * 100) / 100;
 };
+
+const createFallbackAdminPurchaseOption = (card: AdminPurchaseOptionCard): PurchaseOptionPayload => ({
+  id: `fallback-${card.id}`,
+  card_id: card.id,
+  label: 'Single',
+  price: parseMoney(String(card.price)),
+  min_quantity: 1,
+  max_quantity: null,
+  is_default: true,
+  is_active: true,
+  sort_order: 0,
+});
+
+const sortAdminPurchaseOptions = (options: PurchaseOptionPayload[]) => [...options].sort((a, b) => {
+  const aSort = Number(a.sort_order);
+  const bSort = Number(b.sort_order);
+  return (Number.isFinite(aSort) ? aSort : 0) - (Number.isFinite(bSort) ? bSort : 0);
+});
+
+export function getAdminPurchaseOptions(card: AdminPurchaseOptionCard): PurchaseOptionPayload[] {
+  const options = sortAdminPurchaseOptions(card.purchase_options ?? []);
+  return options.length > 0 ? options : [createFallbackAdminPurchaseOption(card)];
+}
+
+export function getActiveAdminPurchaseOptions(
+  card: AdminPurchaseOptionCard,
+  selectedOptionId?: string | null,
+): PurchaseOptionPayload[] {
+  const options = getAdminPurchaseOptions(card).filter(option => (
+    option.is_active || option.id === selectedOptionId
+  ));
+
+  return options.length > 0 ? options : [createFallbackAdminPurchaseOption(card)];
+}
+
+export function getDefaultAdminPurchaseOption(card: AdminPurchaseOptionCard) {
+  const options = getActiveAdminPurchaseOptions(card);
+  return options.find(option => option.is_default && option.is_active)
+    ?? options.find(option => option.is_active)
+    ?? options[0];
+}
+
+export function getSelectedAdminPurchaseOption(
+  card: AdminPurchaseOptionCard,
+  selectedOptionId?: string | null,
+) {
+  const options = getActiveAdminPurchaseOptions(card, selectedOptionId);
+  return options.find(option => option.id === selectedOptionId)
+    ?? getDefaultAdminPurchaseOption(card);
+}
 
 const parseCount = (value: string) => {
   const parsed = Number(value);

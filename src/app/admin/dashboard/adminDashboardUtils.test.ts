@@ -10,8 +10,12 @@ import {
   createPurchaseOptionDrafts,
   createWishlistItemsDraft,
   formatAdminError,
+  getActiveAdminPurchaseOptions,
+  getAdminPurchaseOptions,
   getCardDraftErrors,
+  getDefaultAdminPurchaseOption,
   getPurchaseOptionDraftErrors,
+  getSelectedAdminPurchaseOption,
   isMissingColumnError,
   normalizePurchaseOptionDrafts,
   normalizeInstagramUrl,
@@ -191,6 +195,100 @@ test('buildPurchaseOptionPayloads emits numeric prices and nullable max quantiti
       },
     ],
   );
+});
+
+test('getActiveAdminPurchaseOptions excludes inactive options for new order edits', () => {
+  const options = getActiveAdminPurchaseOptions({
+    id: 'card-1',
+    price: 16,
+    purchase_options: [
+      {
+        id: 'single',
+        card_id: 'card-1',
+        label: 'Single',
+        price: 16,
+        min_quantity: 1,
+        max_quantity: null,
+        is_default: true,
+        is_active: true,
+        sort_order: 0,
+      },
+      {
+        id: 'old-set',
+        card_id: 'card-1',
+        label: 'Old Set',
+        price: 28,
+        min_quantity: 1,
+        max_quantity: null,
+        is_default: false,
+        is_active: false,
+        sort_order: 1,
+      },
+    ],
+  });
+
+  assert.deepEqual(options.map(option => option.id), ['single']);
+});
+
+test('admin order option helpers preserve an inactive historical option', () => {
+  const card = {
+    id: 'card-1',
+    price: 16,
+    purchase_options: [
+      {
+        id: 'single',
+        card_id: 'card-1',
+        label: 'Single',
+        price: 16,
+        min_quantity: 1,
+        max_quantity: null,
+        is_default: true,
+        is_active: true,
+        sort_order: 0,
+      },
+      {
+        id: 'old-set',
+        card_id: 'card-1',
+        label: 'Old Set',
+        price: 28,
+        min_quantity: 1,
+        max_quantity: null,
+        is_default: false,
+        is_active: false,
+        sort_order: 1,
+      },
+    ],
+  };
+
+  assert.deepEqual(getAdminPurchaseOptions(card).map(option => option.id), ['single', 'old-set']);
+  assert.deepEqual(
+    getActiveAdminPurchaseOptions(card, 'old-set').map(option => option.id),
+    ['single', 'old-set'],
+  );
+  assert.equal(getSelectedAdminPurchaseOption(card, 'old-set')?.id, 'old-set');
+  assert.equal(getDefaultAdminPurchaseOption(card)?.id, 'single');
+});
+
+test('admin order option helpers fall back to a Single option when all options are inactive', () => {
+  const options = getActiveAdminPurchaseOptions({
+    id: 'card-2',
+    price: 9,
+    purchase_options: [{
+      id: 'inactive',
+      card_id: 'card-2',
+      label: 'Inactive',
+      price: 12,
+      min_quantity: 1,
+      max_quantity: null,
+      is_default: true,
+      is_active: false,
+      sort_order: 0,
+    }],
+  });
+
+  assert.deepEqual(options.map(option => option.id), ['fallback-card-2']);
+  assert.equal(options[0].label, 'Single');
+  assert.equal(options[0].price, 9);
 });
 
 test('normalizeAdminSettings keeps settings usable for storefront copy', () => {

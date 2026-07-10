@@ -624,9 +624,40 @@
 
 .wishlistItemsPreview {
   display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-  max-width: 160px;
+  flex-direction: column;
+  gap: 0.45rem;
+  max-width: 280px;
+}
+
+.wishlistItemPreview {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.wishlistItemPreview span {
+  display: grid;
+  gap: 0.08rem;
+  min-width: 0;
+}
+
+.wishlistItemPreview strong,
+.wishlistItemPreview small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wishlistItemPreview strong {
+  font-size: 0.75rem;
+}
+
+.wishlistItemPreview small {
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
 }
 
 .microImg {

@@ -28,8 +28,12 @@ import {
   createWishlistItemsDraft,
   defaultAdminSettings,
   formatAdminError,
+  getActiveAdminPurchaseOptions,
+  getAdminPurchaseOptions,
   getCardDraftErrors,
+  getDefaultAdminPurchaseOption,
   getPurchaseOptionDraftErrors,
+  getSelectedAdminPurchaseOption,
   isMissingColumnError,
   normalizePurchaseOptionDrafts,
   normalizeAdminSettings,
@@ -81,45 +85,6 @@ type WishlistEditDraft = {
   notes: string;
   items: WishlistDraftItem[];
 };
-
-function getInventoryPurchaseOptions(card: AdminCard): PurchaseOptionPayload[] {
-  const options = card.purchase_options ?? [];
-  if (options.length === 0) {
-    return [{
-      id: `fallback-${card.id}`,
-      card_id: card.id,
-      label: 'Single',
-      price: Number(card.price) || 0,
-      min_quantity: 1,
-      max_quantity: null,
-      is_default: true,
-      is_active: true,
-      sort_order: 0,
-    }];
-  }
-
-  return [...options].sort((a, b) => {
-    const aSort = Number(a.sort_order);
-    const bSort = Number(b.sort_order);
-    return (Number.isFinite(aSort) ? aSort : 0) - (Number.isFinite(bSort) ? bSort : 0);
-  });
-}
-
-function getDefaultInventoryPurchaseOption(card: AdminCard): PurchaseOptionPayload {
-  const options = getInventoryPurchaseOptions(card);
-  return options.find(option => option.is_active && option.is_default)
-    ?? options.find(option => option.is_active)
-    ?? options[0];
-}
-
-function getSelectedInventoryPurchaseOption(
-  card: AdminCard,
-  purchaseOptionId?: string | null,
-) {
-  const options = getInventoryPurchaseOptions(card);
-  return options.find(option => option.id === purchaseOptionId)
-    ?? getDefaultInventoryPurchaseOption(card);
-}
 
 function getPersistentPurchaseOptionId(optionId?: string | null) {
   return optionId && !optionId.startsWith('fallback-') ? optionId : null;
@@ -863,7 +828,7 @@ export default function AdminDashboard() {
     }
 
     const selectedCard = cardsById.get(targetCardId);
-    const defaultOption = selectedCard ? getDefaultInventoryPurchaseOption(selectedCard) : undefined;
+    const defaultOption = selectedCard ? getDefaultAdminPurchaseOption(selectedCard) : undefined;
     const purchaseOptionId = getPersistentPurchaseOptionId(defaultOption?.id);
     const optionLabel = defaultOption?.label || 'Single';
     const unitPrice = Number(defaultOption?.price ?? selectedCard?.price ?? 0) || 0;
@@ -1654,7 +1619,7 @@ export default function AdminDashboard() {
                               const nextCardId = event.target.value;
                               const nextCard = cardsById.get(nextCardId);
                               const nextOption = nextCard
-                                ? getDefaultInventoryPurchaseOption(nextCard)
+                                ? getDefaultAdminPurchaseOption(nextCard)
                                 : undefined;
                               updateWishlistDraftItem(item.key, {
                                 card_id: nextCardId,
@@ -1675,7 +1640,7 @@ export default function AdminDashboard() {
                             value={item.purchase_option_id || ''}
                             onChange={event => {
                               if (!selectedCard) return;
-                              const selectedOption = getSelectedInventoryPurchaseOption(
+                              const selectedOption = getSelectedAdminPurchaseOption(
                                 selectedCard,
                                 event.target.value,
                               );
@@ -1687,9 +1652,9 @@ export default function AdminDashboard() {
                             }}
                             aria-label="Purchase option"
                           >
-                            {selectedCard ? getInventoryPurchaseOptions(selectedCard).map(option => (
+                            {selectedCard ? getActiveAdminPurchaseOptions(selectedCard, item.purchase_option_id).map(option => (
                               <option key={option.id || `${selectedCard.id}-fallback`} value={getPersistentPurchaseOptionId(option.id) || ''}>
-                                {option.label} - ${Number(option.price || 0).toFixed(2)}
+                                {option.label}{!option.is_active ? ' (Inactive)' : ''} - ${Number(option.price || 0).toFixed(2)}
                               </option>
                             )) : (
                               <option value="">Select a card first</option>
@@ -1901,7 +1866,7 @@ export default function AdminDashboard() {
                     </thead>
                     <tbody>
                       {filteredCards.map(card => {
-                        const inventoryPurchaseOptions = getInventoryPurchaseOptions(card);
+                        const inventoryPurchaseOptions = getAdminPurchaseOptions(card);
 
                         return (
                           <tr key={card.id}>
@@ -2117,13 +2082,28 @@ export default function AdminDashboard() {
                         <td>
                           <div className={styles.wishlistItemsPreview}>
                             {wishlist.wishlist_items?.map(item => (
-                              <img
+                              <div
                                 key={item.id}
-                                src={item.cards?.image_url}
-                                alt=""
-                                title={item.cards?.title}
-                                className={styles.microImg}
-                              />
+                                className={styles.wishlistItemPreview}
+                                title={item.cards?.title || 'Untitled card'}
+                              >
+                                {item.cards?.image_url ? (
+                                  <img
+                                    src={item.cards.image_url}
+                                    alt=""
+                                    className={styles.microImg}
+                                  />
+                                ) : (
+                                  <div className={styles.microImg} />
+                                )}
+                                <span>
+                                  <strong>{item.cards?.title || 'Untitled card'}</strong>
+                                  <small>
+                                    {item.option_label_snapshot || 'Single'} · $
+                                    {Number(item.unit_price_snapshot ?? item.cards?.price ?? 0).toFixed(2)}
+                                  </small>
+                                </span>
+                              </div>
                             ))}
                           </div>
                         </td>
