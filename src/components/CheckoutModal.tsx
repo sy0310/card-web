@@ -6,6 +6,10 @@ import { useWishlist } from '@/context/WishlistContext';
 import { supabase } from '@/lib/supabase';
 import WishlistReceipt from './WishlistReceipt';
 import { waitForImages } from './checkoutImageUtils';
+import {
+  buildWishlistItemInsertRows,
+  formatCheckoutError,
+} from './checkoutUtils';
 import styles from './CheckoutModal.module.css';
 
 export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) {
@@ -54,6 +58,9 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
     }
     setLoading(true);
 
+    let createdWishlistId: string | null = null;
+    let shouldCleanupWishlist = false;
+
     try {
       // 1. Log to Database
       const { data: wishlistData, error: wishlistError } = await supabase
@@ -66,48 +73,61 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
         .select()
         .single();
 
-      if (wishlistError) throw wishlistError;
+      if (wishlistError) {
+        throw new Error(`Creating wishlist failed: ${formatCheckoutError(wishlistError)}`);
+      }
+      if (!wishlistData?.id) {
+        throw new Error('Creating wishlist failed: the database did not return a wishlist id.');
+      }
+      const wishlistId = wishlistData.id;
+      createdWishlistId = wishlistId;
 
       // 2. Log Items
-      const wishlistItems = safeItems.flatMap(item => {
-        if (!item || !item.id) return [];
-        const qty = Number.isFinite(Number(item.quantity)) ? Number(item.quantity) : 1;
-        const unitPrice = Number.isFinite(Number(item.unit_price))
-          ? Number(item.unit_price)
-          : Number(item.price) || 0;
-        return Array.from({ length: Math.max(1, Math.floor(qty)) }, () => ({
-          wishlist_id: wishlistData.id,
-          card_id: item.card_id || item.id,
-          purchase_option_id: item.purchase_option_id || null,
-          option_label_snapshot: item.option_label || 'Single',
-          unit_price_snapshot: unitPrice,
-        }));
-      });
+      shouldCleanupWishlist = true;
+      const wishlistItems = buildWishlistItemInsertRows(wishlistId, safeItems);
 
       const { error: itemsError } = await supabase
         .from('wishlist_items')
         .insert(wishlistItems);
 
-      if (itemsError) throw itemsError;
+      if (itemsError) {
+        throw new Error(`Saving wishlist items failed: ${formatCheckoutError(itemsError)}`);
+      }
+      shouldCleanupWishlist = false;
 
       // 3. Generate Image
       if (summaryRef.current) {
-        const imageReport = await waitForImages(summaryRef.current);
-        if (imageReport.failed > 0) {
-          console.warn('Some receipt images failed to load before export:', imageReport);
-        }
+        try {
+          const imageReport = await waitForImages(summaryRef.current);
+          if (imageReport.failed > 0) {
+            console.warn('Some receipt images failed to load before export:', imageReport);
+          }
 
-        const dataUrl = await toPng(summaryRef.current, {
-          cacheBust: true,
-          includeQueryParams: true,
-          quality: 1,
-        });
-        setGeneratedImg(dataUrl);
-        setStep(2);
+          const dataUrl = await toPng(summaryRef.current, {
+            cacheBust: true,
+            includeQueryParams: true,
+            quality: 1,
+          });
+          setGeneratedImg(dataUrl);
+          setStep(2);
+        } catch (error: unknown) {
+          throw new Error(`Generating receipt image failed: ${formatCheckoutError(error)}`);
+        }
       }
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      alert('Error processing request: ' + message);
+      if (shouldCleanupWishlist && createdWishlistId) {
+        const { error: cleanupError } = await supabase
+          .from('wishlists')
+          .delete()
+          .eq('id', createdWishlistId);
+
+        if (cleanupError) {
+          console.error('Failed to clean up incomplete wishlist:', cleanupError);
+        }
+      }
+
+      console.error('Checkout failed:', error);
+      alert('Error processing request: ' + formatCheckoutError(error));
     } finally {
       setLoading(false);
     }
