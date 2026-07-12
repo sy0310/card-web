@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   buildStorefrontSearchFilter,
   createStorefrontRequestTracker,
+  getStorefrontEmptyState,
   getStorefrontLoadErrorMessage,
   getStorefrontSearchTerms,
   getStorefrontPageRange,
@@ -65,6 +66,21 @@ test('a request cancelled for a newer storefront filter remains silent', () => {
       wasAborted: true,
     }),
     null,
+  );
+});
+
+test('an empty storefront with a load error shows retry state instead of no results', () => {
+  assert.equal(
+    getStorefrontEmptyState({ cardCount: 0, loading: false, loadError: 'Loading cards timed out.' }),
+    'error',
+  );
+  assert.equal(
+    getStorefrontEmptyState({ cardCount: 0, loading: true, loadError: '' }),
+    'loading',
+  );
+  assert.equal(
+    getStorefrontEmptyState({ cardCount: 0, loading: false, loadError: '' }),
+    'empty',
   );
 });
 
