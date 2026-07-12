@@ -14,6 +14,7 @@ import {
 import {
   buildStorefrontSearchFilter,
   createStorefrontRequestTracker,
+  getStorefrontLoadErrorMessage,
   getStorefrontSearchTerms,
   getStorefrontPageRange,
   hasNextStorefrontPage,
@@ -100,6 +101,7 @@ export default function Home() {
     }
     setLoadError('');
 
+    let cardsDidTimeout = false;
     try {
       let cardsQuery = supabase
         .from('cards')
@@ -113,7 +115,10 @@ export default function Home() {
       }
 
       const cardsTimeout = window.setTimeout(
-        () => controller.abort(),
+        () => {
+          cardsDidTimeout = true;
+          controller.abort();
+        },
         STOREFRONT_REQUEST_TIMEOUT_MS,
       );
       let data: StorefrontCardRow[] | null;
@@ -140,12 +145,18 @@ export default function Home() {
       const optionsByCardId = new Map<string, PurchaseOption[]>();
 
       if (cardsBatch.length > 0) {
+        const optionsController = new AbortController();
+        let optionsDidTimeout = false;
         const optionsTimeout = window.setTimeout(
-          () => controller.abort(),
+          () => {
+            optionsDidTimeout = true;
+            optionsController.abort();
+          },
           STOREFRONT_REQUEST_TIMEOUT_MS,
         );
-        let optionsData: Partial<PurchaseOption>[] | null;
-        let optionsError: { message?: string } | null;
+        let optionsData: Partial<PurchaseOption>[] | null = null;
+        let optionsError: { message?: string } | null = null;
+        let optionsQueryFailure: unknown;
 
         try {
           ({ data: optionsData, error: optionsError } = await supabase
@@ -155,15 +166,22 @@ export default function Home() {
             .eq('is_active', true)
             .order('sort_order', { ascending: true })
             .retry(false)
-            .abortSignal(controller.signal));
+            .abortSignal(optionsController.signal));
+        } catch (error) {
+          optionsQueryFailure = error;
         } finally {
           window.clearTimeout(optionsTimeout);
         }
 
         if (!requestTracker.isCurrent(requestId) || !isMountedRef.current) return;
 
-        if (optionsError) {
-          console.warn('Could not load purchase options; using the card price as a fallback.', optionsError.message);
+        if (optionsError || optionsQueryFailure || optionsController.signal.aborted) {
+          console.warn(
+            'Could not load purchase options; using the card price as a fallback.',
+            optionsDidTimeout
+              ? 'Purchase options request timed out.'
+              : optionsError?.message ?? optionsQueryFailure,
+          );
         } else {
           for (const optionRow of optionsData ?? []) {
             const option = normalizePurchaseOption(optionRow);
@@ -192,12 +210,16 @@ export default function Home() {
       setCards(currentCards => reset ? hydratedCards : mergeStorefrontPage(currentCards, hydratedCards));
       setHasMore(hasNextStorefrontPage(cardsBatch.length));
     } catch (error) {
-      if (!requestTracker.isCurrent(requestId) || controller.signal.aborted) return;
+      const loadErrorMessage = getStorefrontLoadErrorMessage({
+        isCurrent: requestTracker.isCurrent(requestId),
+        isMounted: isMountedRef.current,
+        didTimeout: cardsDidTimeout,
+        wasAborted: controller.signal.aborted,
+      });
+      if (!loadErrorMessage) return;
 
       console.error('Error loading storefront cards:', error);
-      if (isMountedRef.current) {
-        setLoadError('Could not load cards. Check your connection and try again.');
-      }
+      setLoadError(loadErrorMessage);
     } finally {
       if (!reset) {
         isLoadMoreRequestInFlightRef.current = false;

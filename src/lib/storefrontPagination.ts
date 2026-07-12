@@ -34,6 +34,23 @@ export function createStorefrontRequestTracker() {
   };
 }
 
+export function getStorefrontLoadErrorMessage({
+  isCurrent,
+  isMounted,
+  didTimeout,
+  wasAborted,
+}: {
+  isCurrent: boolean;
+  isMounted: boolean;
+  didTimeout: boolean;
+  wasAborted: boolean;
+}) {
+  if (!isCurrent || !isMounted || (wasAborted && !didTimeout)) return null;
+  if (didTimeout) return 'Loading cards timed out. Please try again.';
+
+  return 'Could not load cards. Check your connection and try again.';
+}
+
 export function getStorefrontPageRange(offset: number, pageSize = STOREFRONT_PAGE_SIZE): [number, number] {
   const safeOffset = Number.isFinite(offset) ? Math.max(0, Math.floor(offset)) : 0;
   const safePageSize = Number.isFinite(pageSize) ? Math.max(1, Math.floor(pageSize)) : STOREFRONT_PAGE_SIZE;
