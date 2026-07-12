@@ -1,7 +1,37 @@
 export const STOREFRONT_PAGE_SIZE = 40;
 
 export function normalizeStorefrontSearch(value: string) {
-  return String(value ?? '').replace(/[,()]/g, ' ').replace(/\s+/g, ' ').trim();
+  return String(value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+export function getStorefrontSearchTerms(value: string) {
+  return normalizeStorefrontSearch(value).match(/[\p{L}\p{N}&-]+/gu) ?? [];
+}
+
+export function buildStorefrontSearchFilter(terms: string[]) {
+  const safeTerms = terms.filter(term => /^[\p{L}\p{N}&-]+$/u.test(term));
+  const termClauses = safeTerms.map(
+    term => `or(title.ilike.*${term}*,group_name.ilike.*${term}*)`,
+  );
+
+  if (termClauses.length === 0) return '';
+  if (termClauses.length === 1) return termClauses[0];
+
+  return `and(${termClauses.join(',')})`;
+}
+
+export function createStorefrontRequestTracker() {
+  let currentRequestId = 0;
+
+  return {
+    begin() {
+      currentRequestId += 1;
+      return currentRequestId;
+    },
+    isCurrent(requestId: number) {
+      return currentRequestId === requestId;
+    },
+  };
 }
 
 export function getStorefrontPageRange(offset: number, pageSize = STOREFRONT_PAGE_SIZE): [number, number] {

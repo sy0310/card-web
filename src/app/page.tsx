@@ -12,6 +12,9 @@ import {
   type PurchaseOption,
 } from '@/lib/purchaseOptions';
 import {
+  buildStorefrontSearchFilter,
+  createStorefrontRequestTracker,
+  getStorefrontSearchTerms,
   getStorefrontPageRange,
   hasNextStorefrontPage,
   mergeStorefrontPage,
@@ -35,6 +38,9 @@ type StorefrontCardRow = Omit<StorefrontCard, 'price' | 'inventory_count' | 'pur
   inventory_count: number | string | null;
 };
 
+const STOREFRONT_REQUEST_TIMEOUT_MS = 12_000;
+const CATEGORY_PAGE_SIZE = 1_000;
+
 export default function Home() {
   const [cards, setCards] = useState<StorefrontCard[]>([]);
   const [loading, setLoading] = useState(true);
@@ -50,8 +56,11 @@ export default function Home() {
   const [isExpanded, setIsExpanded] = useState(false);
   const visibleLimit = 10;
   const nextOffsetRef = useRef(0);
-  const isPageRequestInFlightRef = useRef(false);
+  const cardsRequestControllerRef = useRef<AbortController | null>(null);
+  const categoriesRequestControllerRef = useRef<AbortController | null>(null);
+  const isLoadMoreRequestInFlightRef = useRef(false);
   const isMountedRef = useRef(true);
+  const [requestTracker] = useState(createStorefrontRequestTracker);
   
   const { items } = useWishlist();
 
@@ -67,9 +76,17 @@ export default function Home() {
   }, [search]);
 
   const loadCardsPage = useCallback(async (reset = false) => {
-    if (isPageRequestInFlightRef.current) return;
+    if (!reset && isLoadMoreRequestInFlightRef.current) return;
 
-    isPageRequestInFlightRef.current = true;
+    const requestId = requestTracker.begin();
+    if (reset) {
+      cardsRequestControllerRef.current?.abort();
+    } else {
+      isLoadMoreRequestInFlightRef.current = true;
+    }
+
+    const controller = new AbortController();
+    cardsRequestControllerRef.current = controller;
     const offset = reset ? 0 : nextOffsetRef.current;
     const [from, to] = getStorefrontPageRange(offset);
 
@@ -77,25 +94,38 @@ export default function Home() {
       nextOffsetRef.current = 0;
       setLoading(true);
       setHasMore(true);
+      setCards([]);
     } else {
       setLoadingMore(true);
     }
     setLoadError('');
 
     try {
-      const cardsController = new AbortController();
-      const cardsTimeout = window.setTimeout(() => cardsController.abort(), 12_000);
       let cardsQuery = supabase
         .from('cards')
         .select('*')
         .order('created_at', { ascending: false })
         .range(from, to);
       if (activeCategory !== 'All') cardsQuery = cardsQuery.eq('group_name', activeCategory);
-      if (normalizedSearch) {
-        cardsQuery = cardsQuery.or(`title.ilike.%${normalizedSearch}%,group_name.ilike.%${normalizedSearch}%`);
+      const searchFilter = buildStorefrontSearchFilter(getStorefrontSearchTerms(normalizedSearch));
+      if (searchFilter) {
+        cardsQuery = cardsQuery.or(searchFilter);
       }
-      const { data, error } = await cardsQuery.retry(false).abortSignal(cardsController.signal);
-      window.clearTimeout(cardsTimeout);
+
+      const cardsTimeout = window.setTimeout(
+        () => controller.abort(),
+        STOREFRONT_REQUEST_TIMEOUT_MS,
+      );
+      let data: StorefrontCardRow[] | null;
+      let error: { message?: string } | null;
+
+      try {
+        ({ data, error } = await cardsQuery.retry(false).abortSignal(controller.signal));
+      } finally {
+        window.clearTimeout(cardsTimeout);
+      }
+
+      if (!requestTracker.isCurrent(requestId) || !isMountedRef.current) return;
 
       if (error) throw new Error(error.message || 'Could not load the card collection.');
 
@@ -110,17 +140,27 @@ export default function Home() {
       const optionsByCardId = new Map<string, PurchaseOption[]>();
 
       if (cardsBatch.length > 0) {
-        const optionsController = new AbortController();
-        const optionsTimeout = window.setTimeout(() => optionsController.abort(), 12_000);
-        const { data: optionsData, error: optionsError } = await supabase
-          .from('card_purchase_options')
-          .select('id, card_id, label, price, min_quantity, max_quantity, is_default, is_active, sort_order')
-          .in('card_id', cardsBatch.map(card => card.id))
-          .eq('is_active', true)
-          .order('sort_order', { ascending: true })
-          .retry(false)
-          .abortSignal(optionsController.signal);
-        window.clearTimeout(optionsTimeout);
+        const optionsTimeout = window.setTimeout(
+          () => controller.abort(),
+          STOREFRONT_REQUEST_TIMEOUT_MS,
+        );
+        let optionsData: Partial<PurchaseOption>[] | null;
+        let optionsError: { message?: string } | null;
+
+        try {
+          ({ data: optionsData, error: optionsError } = await supabase
+            .from('card_purchase_options')
+            .select('id, card_id, label, price, min_quantity, max_quantity, is_default, is_active, sort_order')
+            .in('card_id', cardsBatch.map(card => card.id))
+            .eq('is_active', true)
+            .order('sort_order', { ascending: true })
+            .retry(false)
+            .abortSignal(controller.signal));
+        } finally {
+          window.clearTimeout(optionsTimeout);
+        }
+
+        if (!requestTracker.isCurrent(requestId) || !isMountedRef.current) return;
 
         if (optionsError) {
           console.warn('Could not load purchase options; using the card price as a fallback.', optionsError.message);
@@ -152,23 +192,42 @@ export default function Home() {
       setCards(currentCards => reset ? hydratedCards : mergeStorefrontPage(currentCards, hydratedCards));
       setHasMore(hasNextStorefrontPage(cardsBatch.length));
     } catch (error) {
+      if (!requestTracker.isCurrent(requestId) || controller.signal.aborted) return;
+
       console.error('Error loading storefront cards:', error);
       if (isMountedRef.current) {
         setLoadError('Could not load cards. Check your connection and try again.');
       }
     } finally {
-      isPageRequestInFlightRef.current = false;
-      if (isMountedRef.current) {
+      if (!reset) {
+        isLoadMoreRequestInFlightRef.current = false;
+      }
+      if (cardsRequestControllerRef.current === controller) {
+        cardsRequestControllerRef.current = null;
+      }
+      if (requestTracker.isCurrent(requestId) && isMountedRef.current) {
         setLoading(false);
         setLoadingMore(false);
       }
     }
-  }, [activeCategory, normalizedSearch]);
+  }, [activeCategory, normalizedSearch, requestTracker]);
 
   useEffect(() => {
     isMountedRef.current = true;
-    const initialLoad = window.setTimeout(() => void loadCardsPage(true), 0);
 
+    return () => {
+      isMountedRef.current = false;
+      cardsRequestControllerRef.current?.abort();
+      categoriesRequestControllerRef.current?.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    const initialLoad = window.setTimeout(() => void loadCardsPage(true), 0);
+    return () => window.clearTimeout(initialLoad);
+  }, [loadCardsPage]);
+
+  useEffect(() => {
     void supabase
       .from('site_settings')
       .select('value')
@@ -179,48 +238,67 @@ export default function Home() {
           setSiteTitle(data.value);
         }
       });
+  }, []);
 
-    void supabase.from('cards').select('group_name').then(({ data }) => {
-      if (!isMountedRef.current) return;
-      const seen = new Set<string>();
-      const names = (data ?? []).flatMap(({ group_name }) => {
-        const name = typeof group_name === 'string' ? group_name.trim() : '';
-        if (!name || seen.has(name.toLowerCase())) return [];
-        seen.add(name.toLowerCase());
-        return [name];
-      });
-      setCategories(['All', ...names]);
-    });
+  useEffect(() => {
+    const controller = new AbortController();
+    categoriesRequestControllerRef.current = controller;
+    const timeout = window.setTimeout(
+      () => controller.abort(),
+      STOREFRONT_REQUEST_TIMEOUT_MS,
+    );
+
+    const loadCategories = async () => {
+      const namesByLowercase = new Map<string, string>();
+      let offset = 0;
+
+      try {
+        while (!controller.signal.aborted) {
+          const { data, error } = await supabase
+            .from('cards')
+            .select('group_name')
+            .order('group_name', { ascending: true })
+            .range(offset, offset + CATEGORY_PAGE_SIZE - 1)
+            .retry(false)
+            .abortSignal(controller.signal);
+
+          if (error) throw new Error(error.message || 'Could not load storefront categories.');
+
+          const page = data ?? [];
+          for (const { group_name } of page) {
+            const name = typeof group_name === 'string' ? group_name.trim() : '';
+            if (name) namesByLowercase.set(name.toLowerCase(), name);
+          }
+
+          if (page.length < CATEGORY_PAGE_SIZE) break;
+          offset += page.length;
+        }
+
+        if (!controller.signal.aborted && isMountedRef.current) {
+          setCategories([
+            'All',
+            ...[...namesByLowercase.values()].sort((left, right) => left.localeCompare(right)),
+          ]);
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          console.warn('Could not load all storefront categories.', error);
+        }
+      } finally {
+        window.clearTimeout(timeout);
+        if (categoriesRequestControllerRef.current === controller) {
+          categoriesRequestControllerRef.current = null;
+        }
+      }
+    };
+
+    void loadCategories();
 
     return () => {
-      window.clearTimeout(initialLoad);
-      isMountedRef.current = false;
+      controller.abort();
+      window.clearTimeout(timeout);
     };
-  }, [loadCardsPage]);
-
-  const filteredCards = useMemo(() => {
-    let result = Array.isArray(cards) ? [...cards] : [];
-    
-    if (activeCategory !== 'All') {
-      result = result.filter(
-        card => (card.group_name || '').toLowerCase() === activeCategory.toLowerCase()
-      );
-    }
-    
-    if (search) {
-      const terms = search.toLowerCase().split(/\s+/).filter(Boolean);
-      if (terms.length > 0) {
-        result = result.filter(card =>
-          terms.every(term =>
-            (card.title || '').toLowerCase().includes(term) || 
-            (card.group_name || '').toLowerCase().includes(term)
-          )
-        );
-      }
-    }
-    
-    return result;
-  }, [activeCategory, cards, search]);
+  }, []);
 
   const visibleCategories = useMemo(() => {
     const safeCategories = Array.isArray(categories) ? categories : ['All'];
@@ -292,8 +370,8 @@ export default function Home() {
               </button>
             )}
           </div>
-        ) : (Array.isArray(filteredCards) && filteredCards.length > 0) ? (
-          (Array.isArray(filteredCards) ? filteredCards : []).map(card => (
+        ) : (Array.isArray(cards) && cards.length > 0) ? (
+          (Array.isArray(cards) ? cards : []).map(card => (
             card && <CardItem key={card.id} card={card} />
           ))
         ) : (
