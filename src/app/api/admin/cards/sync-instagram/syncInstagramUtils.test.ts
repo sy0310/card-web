@@ -70,6 +70,16 @@ test('parseInstagramCaption removes dangling trailing parentheses from title and
     parseInstagramCaption('#meguroamp ampers&one definition minirecord doctor ver （').pob_name,
     'minirecord doctor ver',
   );
+
+  assert.equal(
+    parseInstagramCaption('#meguroamp ampers&one definition minirecord doctor ver )').pob_name,
+    'minirecord doctor ver',
+  );
+
+  assert.equal(
+    parseInstagramCaption('#meguroamp ampers&one definition minirecord doctor ver ）').title,
+    'ampers&one definition minirecord doctor ver',
+  );
 });
 
 test('parseInstagramCaption preserves balanced parentheses and does not truncate inside them', () => {
