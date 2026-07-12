@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   buildStorefrontSearchFilter,
   createStorefrontRequestTracker,
+  getStorefrontLoadErrorMessage,
   getStorefrontSearchTerms,
   getStorefrontPageRange,
   hasNextStorefrontPage,
@@ -41,6 +42,30 @@ test('the latest storefront request supersedes prior requests', () => {
 
   assert.equal(tracker.isCurrent(allCardsRequest), false);
   assert.equal(tracker.isCurrent(searchRequest), true);
+});
+
+test('a current storefront timeout reports a retryable error instead of an empty result', () => {
+  assert.equal(
+    getStorefrontLoadErrorMessage({
+      isCurrent: true,
+      isMounted: true,
+      didTimeout: true,
+      wasAborted: true,
+    }),
+    'Loading cards timed out. Please try again.',
+  );
+});
+
+test('a request cancelled for a newer storefront filter remains silent', () => {
+  assert.equal(
+    getStorefrontLoadErrorMessage({
+      isCurrent: false,
+      isMounted: true,
+      didTimeout: false,
+      wasAborted: true,
+    }),
+    null,
+  );
 });
 
 test('storefront pagination only exposes Load More after a full page', () => {
