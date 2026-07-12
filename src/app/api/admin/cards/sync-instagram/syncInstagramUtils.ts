@@ -221,6 +221,7 @@ function removeUnbalancedTrailingParentheses(value: string) {
   const openToClose: Record<string, string> = { '(': ')', '（': '）' };
   const closingParentheses = new Set(Object.values(openToClose));
   const stack: Array<{ character: string; index: number }> = [];
+  const unmatchedClosingIndexes: number[] = [];
 
   for (let index = 0; index < value.length; index += 1) {
     const character = value[index];
@@ -233,13 +234,22 @@ function removeUnbalancedTrailingParentheses(value: string) {
       const opening = stack.at(-1);
       if (opening && openToClose[opening.character] === character) {
         stack.pop();
+      } else {
+        unmatchedClosingIndexes.push(index);
       }
     }
   }
 
-  if (stack.length === 0) return value;
+  if (stack.length > 0) {
+    return value.slice(0, stack[0].index).trimEnd();
+  }
 
-  return value.slice(0, stack[0].index).trimEnd();
+  const trailingClosingIndex = unmatchedClosingIndexes.at(-1);
+  if (trailingClosingIndex !== undefined && value.slice(trailingClosingIndex + 1).trim() === '') {
+    return value.slice(0, trailingClosingIndex).trimEnd();
+  }
+
+  return value;
 }
 
 function trimTrailingCaptionPunctuation(value: string) {
