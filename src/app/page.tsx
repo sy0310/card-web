@@ -224,8 +224,12 @@ export default function Home() {
 
   useEffect(() => {
     const initialLoad = window.setTimeout(() => void loadCardsPage(true), 0);
-    return () => window.clearTimeout(initialLoad);
-  }, [loadCardsPage]);
+    return () => {
+      window.clearTimeout(initialLoad);
+      requestTracker.begin();
+      cardsRequestControllerRef.current?.abort();
+    };
+  }, [loadCardsPage, requestTracker]);
 
   useEffect(() => {
     void supabase
