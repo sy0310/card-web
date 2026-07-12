@@ -43,6 +43,7 @@ export default function Home() {
   const [hasMore, setHasMore] = useState(true);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [categories, setCategories] = useState<string[]>(['All']);
   const [activeCategory, setActiveCategory] = useState('All');
   const [isWishlistOpen, setIsWishlistOpen] = useState(false);
   const [siteTitle, setSiteTitle] = useState('K-POP CARD');
@@ -179,6 +180,18 @@ export default function Home() {
         }
       });
 
+    void supabase.from('cards').select('group_name').then(({ data }) => {
+      if (!isMountedRef.current) return;
+      const seen = new Set<string>();
+      const names = (data ?? []).flatMap(({ group_name }) => {
+        const name = typeof group_name === 'string' ? group_name.trim() : '';
+        if (!name || seen.has(name.toLowerCase())) return [];
+        seen.add(name.toLowerCase());
+        return [name];
+      });
+      setCategories(['All', ...names]);
+    });
+
     return () => {
       window.clearTimeout(initialLoad);
       isMountedRef.current = false;
@@ -208,21 +221,6 @@ export default function Home() {
     
     return result;
   }, [activeCategory, cards, search]);
-
-  const categories = useMemo(() => {
-    const safeCards = Array.isArray(cards) ? cards : [];
-    const seen = new Set<string>();
-    const uniqueCategories: string[] = [];
-    for (const card of safeCards) {
-      if (!card || !card.group_name) continue;
-      const lower = card.group_name.toLowerCase();
-      if (!seen.has(lower)) {
-        seen.add(lower);
-        uniqueCategories.push(card.group_name);
-      }
-    }
-    return ['All', ...uniqueCategories];
-  }, [cards]);
 
   const visibleCategories = useMemo(() => {
     const safeCategories = Array.isArray(categories) ? categories : ['All'];
