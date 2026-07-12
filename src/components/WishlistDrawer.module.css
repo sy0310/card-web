@@ -4,6 +4,7 @@
   left: 0;
   width: 100vw;
   height: 100vh;
+  height: 100dvh;
   background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(4px);
   z-index: 1000;
@@ -15,7 +16,10 @@
   width: 100%;
   max-width: 450px;
   height: 100vh;
+  height: 100dvh;
+  max-height: 100dvh;
   padding: 2rem;
+  padding-bottom: max(2rem, calc(1rem + env(safe-area-inset-bottom)));
   display: flex;
   flex-direction: column;
   box-shadow: -10px 0 30px rgba(0,0,0,0.5);
@@ -44,6 +48,7 @@
 
 .itemsList {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -115,9 +120,33 @@
 }
 
 .footer {
+  position: sticky;
+  bottom: 0;
+  flex-shrink: 0;
   margin-top: 2rem;
   padding-top: 2rem;
   border-top: 1px solid var(--glass-border);
+}
+
+@media (max-width: 768px) {
+  .drawer {
+    max-width: none;
+    padding: 1.25rem;
+    padding-bottom: max(1.25rem, calc(0.75rem + env(safe-area-inset-bottom)));
+  }
+
+  .header {
+    margin-bottom: 1.25rem;
+  }
+
+  .itemsList {
+    gap: 1rem;
+  }
+
+  .footer {
+    margin-top: 1rem;
+    padding-top: 1rem;
+  }
 }
 
 .total {

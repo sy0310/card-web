@@ -115,6 +115,34 @@
   font-size: 1.1rem;
 }
 
+.loadMoreSection {
+  display: grid;
+  justify-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding-bottom: 2rem;
+}
+
+.loadMoreBtn,
+.retryBtn {
+  border: 1px solid var(--primary);
+  border-radius: 100px;
+  background: rgba(192, 160, 255, 0.14);
+  color: var(--primary);
+  font-weight: 700;
+  padding: 0.75rem 1.25rem;
+}
+
+.loadMoreBtn:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.loadError {
+  color: var(--accent);
+  text-align: center;
+}
+
 @media (max-width: 768px) {
   .main {
     padding: 1rem;
@@ -125,7 +153,7 @@
   }
   
   .grid {
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 1rem;
   }
 }

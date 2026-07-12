@@ -73,7 +73,7 @@ export default function CardItem({ card }: CardProps) {
   return (
     <div className={`${styles.card} glass fade-in`}>
       <div className={styles.imageContainer}>
-        <img src={imageUrl} alt={title} className={styles.image} />
+        <img src={imageUrl} alt={title} className={styles.image} loading="lazy" decoding="async" />
         {isSoldOut && (
           <div className={styles.soldOutOverlay}>
             <span>SOLD OUT</span>

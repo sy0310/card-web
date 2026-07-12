@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import styles from "./page.module.css";
 import CardItem from '@/components/CardItem';
@@ -11,6 +11,11 @@ import {
   normalizePurchaseOption,
   type PurchaseOption,
 } from '@/lib/purchaseOptions';
+import {
+  getStorefrontPageRange,
+  hasNextStorefrontPage,
+  mergeStorefrontPage,
+} from '@/lib/storefrontPagination';
 
 type StorefrontCard = {
   id: string;
@@ -32,12 +37,18 @@ type StorefrontCardRow = Omit<StorefrontCard, 'price' | 'inventory_count' | 'pur
 export default function Home() {
   const [cards, setCards] = useState<StorefrontCard[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const [hasMore, setHasMore] = useState(true);
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
   const [isWishlistOpen, setIsWishlistOpen] = useState(false);
   const [siteTitle, setSiteTitle] = useState('K-POP CARD');
   const [isExpanded, setIsExpanded] = useState(false);
   const visibleLimit = 10;
+  const nextOffsetRef = useRef(0);
+  const isPageRequestInFlightRef = useRef(false);
+  const isMountedRef = useRef(true);
   
   const { items } = useWishlist();
 
@@ -46,69 +57,62 @@ export default function Home() {
     return safeSiteTitle.split(/\s+/).filter(Boolean);
   }, [safeSiteTitle]);
 
-  useEffect(() => {
-    let isMounted = true;
+  const loadCardsPage = useCallback(async (reset = false) => {
+    if (isPageRequestInFlightRef.current) return;
 
-    const loadAllCards = async () => {
-      let allCards: StorefrontCard[] = [];
-      let offset = 0;
-      const limit = 1000;
-      let hasMore = true;
+    isPageRequestInFlightRef.current = true;
+    const offset = reset ? 0 : nextOffsetRef.current;
+    const [from, to] = getStorefrontPageRange(offset);
 
-      while (hasMore) {
-        const { data, error } = await supabase
-          .from('cards')
-          .select('*')
-          .range(offset, offset + limit - 1)
-          .order('created_at', { ascending: false });
+    if (reset) {
+      nextOffsetRef.current = 0;
+      setLoading(true);
+      setHasMore(true);
+    } else {
+      setLoadingMore(true);
+    }
+    setLoadError('');
 
-        if (error) {
-          console.error('Error loading cards:', error.message);
-          hasMore = false;
-          break;
-        }
+    try {
+      const cardsController = new AbortController();
+      const cardsTimeout = window.setTimeout(() => cardsController.abort(), 12_000);
+      const { data, error } = await supabase
+        .from('cards')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .range(from, to)
+        .retry(false)
+        .abortSignal(cardsController.signal);
+      window.clearTimeout(cardsTimeout);
 
-        if (!Array.isArray(data) || data.length === 0) {
-          hasMore = false;
-          break;
-        }
+      if (error) throw new Error(error.message || 'Could not load the card collection.');
 
-        const cardsBatch = (data as StorefrontCardRow[]).map(card => ({
-          ...card,
-          price: Number.isFinite(Number(card.price)) ? Number(card.price) : 0,
-          inventory_count: Number.isFinite(Number(card.inventory_count))
-            ? Number(card.inventory_count)
-            : 0,
-          purchase_options: [],
-        }));
+      const cardsBatch = (data as StorefrontCardRow[] ?? []).map(card => ({
+        ...card,
+        price: Number.isFinite(Number(card.price)) ? Number(card.price) : 0,
+        inventory_count: Number.isFinite(Number(card.inventory_count))
+          ? Number(card.inventory_count)
+          : 0,
+        purchase_options: [],
+      }));
+      const optionsByCardId = new Map<string, PurchaseOption[]>();
 
-        allCards = [...allCards, ...cardsBatch];
-        if (data.length < limit) {
-          hasMore = false;
+      if (cardsBatch.length > 0) {
+        const optionsController = new AbortController();
+        const optionsTimeout = window.setTimeout(() => optionsController.abort(), 12_000);
+        const { data: optionsData, error: optionsError } = await supabase
+          .from('card_purchase_options')
+          .select('id, card_id, label, price, min_quantity, max_quantity, is_default, is_active, sort_order')
+          .in('card_id', cardsBatch.map(card => card.id))
+          .eq('is_active', true)
+          .order('sort_order', { ascending: true })
+          .retry(false)
+          .abortSignal(optionsController.signal);
+        window.clearTimeout(optionsTimeout);
+
+        if (optionsError) {
+          console.warn('Could not load purchase options; using the card price as a fallback.', optionsError.message);
         } else {
-          offset += limit;
-        }
-      }
-
-      if (allCards.length > 0) {
-        const optionsByCardId = new Map<string, PurchaseOption[]>();
-        const cardIds = allCards.map(card => card.id);
-        const optionIdBatchSize = 500;
-
-        for (let index = 0; index < cardIds.length; index += optionIdBatchSize) {
-          const cardIdBatch = cardIds.slice(index, index + optionIdBatchSize);
-          const { data: optionsData, error: optionsError } = await supabase
-            .from('card_purchase_options')
-            .select('id, card_id, label, price, min_quantity, max_quantity, is_default, is_active, sort_order')
-            .in('card_id', cardIdBatch)
-            .eq('is_active', true)
-            .order('sort_order', { ascending: true });
-
-          if (optionsError) {
-            console.error('Error loading purchase options:', optionsError.message);
-            break;
-          }
-
           for (const optionRow of optionsData ?? []) {
             const option = normalizePurchaseOption(optionRow);
             if (!option.card_id) continue;
@@ -118,25 +122,40 @@ export default function Home() {
             optionsByCardId.set(option.card_id, currentOptions);
           }
         }
-
-        allCards = allCards.map(card => {
-          const activeOptions = optionsByCardId.get(card.id) ?? [];
-          return {
-            ...card,
-            purchase_options: activeOptions.length > 0
-              ? activeOptions
-              : [createFallbackPurchaseOption(card)],
-          };
-        });
       }
 
-      if (isMounted) {
-        setCards(allCards);
+      const hydratedCards = cardsBatch.map(card => {
+        const activeOptions = optionsByCardId.get(card.id) ?? [];
+        return {
+          ...card,
+          purchase_options: activeOptions.length > 0
+            ? activeOptions
+            : [createFallbackPurchaseOption(card)],
+        };
+      });
+
+      if (!isMountedRef.current) return;
+
+      nextOffsetRef.current = offset + cardsBatch.length;
+      setCards(currentCards => reset ? hydratedCards : mergeStorefrontPage(currentCards, hydratedCards));
+      setHasMore(hasNextStorefrontPage(cardsBatch.length));
+    } catch (error) {
+      console.error('Error loading storefront cards:', error);
+      if (isMountedRef.current) {
+        setLoadError('Could not load cards. Check your connection and try again.');
+      }
+    } finally {
+      isPageRequestInFlightRef.current = false;
+      if (isMountedRef.current) {
         setLoading(false);
+        setLoadingMore(false);
       }
-    };
+    }
+  }, []);
 
-    void loadAllCards();
+  useEffect(() => {
+    isMountedRef.current = true;
+    const initialLoad = window.setTimeout(() => void loadCardsPage(true), 0);
 
     void supabase
       .from('site_settings')
@@ -144,15 +163,16 @@ export default function Home() {
       .eq('key', 'site_title')
       .single()
       .then(({ data }) => {
-        if (isMounted && data && typeof data.value === 'string') {
+        if (isMountedRef.current && data && typeof data.value === 'string') {
           setSiteTitle(data.value);
         }
       });
 
     return () => {
-      isMounted = false;
+      window.clearTimeout(initialLoad);
+      isMountedRef.current = false;
     };
-  }, []);
+  }, [loadCardsPage]);
 
   const filteredCards = useMemo(() => {
     let result = Array.isArray(cards) ? [...cards] : [];
@@ -254,9 +274,14 @@ export default function Home() {
       </div>
 
       <div className={styles.grid}>
-        {loading ? (
+        {loading && cards.length === 0 ? (
           <div className={styles.fullWidth}>
-            <p className={styles.loadingText}>Fetching collection...</p>
+            <p className={styles.loadingText}>{loadError || 'Fetching collection...'}</p>
+            {loadError && (
+              <button className={styles.retryBtn} onClick={() => void loadCardsPage(true)}>
+                Try again
+              </button>
+            )}
           </div>
         ) : (Array.isArray(filteredCards) && filteredCards.length > 0) ? (
           (Array.isArray(filteredCards) ? filteredCards : []).map(card => (
@@ -268,6 +293,20 @@ export default function Home() {
           </div>
         )}
       </div>
+      {!loading && cards.length > 0 && (hasMore || loadError) && (
+        <section className={styles.loadMoreSection}>
+          {loadError && <p className={styles.loadError}>{loadError}</p>}
+          {hasMore && (
+            <button
+              className={styles.loadMoreBtn}
+              onClick={() => void loadCardsPage()}
+              disabled={loadingMore}
+            >
+              {loadingMore ? 'Loading more cards…' : 'Load more cards'}
+            </button>
+          )}
+        </section>
+      )}
     </main>
   );
 }

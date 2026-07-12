@@ -4,6 +4,7 @@
   transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
 .card:hover {
@@ -93,6 +94,7 @@
   font-size: 1.1rem;
   font-weight: 600;
   margin-bottom: 0.5rem;
+  overflow-wrap: anywhere;
 }
 
 .footer {
@@ -181,4 +183,39 @@
   margin-top: 0.25rem;
   margin-bottom: 0.25rem;
   letter-spacing: 0.5px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 768px) {
+  .info {
+    padding: 0.9rem;
+    gap: 0.4rem;
+  }
+
+  .title {
+    font-size: 0.95rem;
+    margin-bottom: 0.2rem;
+  }
+
+  .footer {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 0.45rem;
+  }
+
+  .price {
+    font-size: 1.05rem;
+    text-align: center;
+  }
+
+  .addBtn {
+    width: 100%;
+    padding: 0.58rem 0.45rem;
+    font-size: 0.76rem;
+  }
+
+  .pobBadge {
+    font-size: 0.64rem;
+  }
 }
