@@ -124,24 +124,24 @@ export function parseInstagramCaption(caption: string) {
       group = tokens[1];
     }
 
-    const groupWords = group.toLowerCase().split(/\s+/);
+    const groupWords = group.toLowerCase().split(/\s+/).map(cleanGroupToken).filter(Boolean);
     const metadataTokens = tokens.slice(1).filter(token => {
       const cleanedToken = cleanGroupToken(token);
       if (cleanedToken === rawTag) return false;
       if (groupWords.includes(cleanedToken)) return false;
       return true;
     });
-    const cleanMetadata = stripTrailingSalesText(metadataTokens.join(' '));
+    const cleanMetadata = cleanCaptionMetadataText(metadataTokens.join(' '));
     const cleanMetadataTokens = cleanMetadata.split(/\s+/).filter(Boolean);
-    album_era = cleanMetadataTokens[0] ?? '';
-    pob_name = cleanMetadataTokens.slice(1).join(' ');
+    album_era = cleanCaptionMetadataText(cleanMetadataTokens[0] ?? '');
+    pob_name = cleanCaptionMetadataText(cleanMetadataTokens.slice(1).join(' '));
   }
 
   let title = firstLine;
   if (firstToken.startsWith('#') && tokens.length >= 2) {
     title = tokens.slice(1).join(' ');
   }
-  title = stripTrailingSalesText(title).substring(0, 80).trim() || 'Instagram Post';
+  title = cleanCaptionMetadataText(title, 80) || 'Instagram Post';
 
   return { title, price, group, album_era, pob_name };
 }
@@ -194,8 +194,54 @@ function stripTrailingSalesText(value: string) {
   const normalized = value.replace(/\s+/g, ' ').trim();
   const match = normalized.match(TITLE_STOP_RE);
   if (!match || match.index === undefined) {
-    return normalized.replace(/\s+[.,;:!?-]+$/, '').trim();
+    return trimTrailingCaptionPunctuation(normalized);
   }
 
-  return normalized.slice(0, match.index).replace(/\s+[.,;:!?-]+$/, '').trim();
+  return trimTrailingCaptionPunctuation(normalized.slice(0, match.index));
+}
+
+function cleanCaptionMetadataText(value: string, maxLength?: number) {
+  const withoutSalesText = stripTrailingSalesText(value);
+  const truncated = maxLength === undefined
+    ? withoutSalesText
+    : truncateCaptionText(withoutSalesText, maxLength);
+
+  return trimTrailingCaptionPunctuation(removeUnbalancedTrailingParentheses(truncated));
+}
+
+function truncateCaptionText(value: string, maxLength: number) {
+  if (value.length <= maxLength) return value;
+
+  const candidate = value.slice(0, maxLength + 1);
+  const lastWhitespace = candidate.lastIndexOf(' ');
+  return lastWhitespace > 0 ? candidate.slice(0, lastWhitespace) : value.slice(0, maxLength);
+}
+
+function removeUnbalancedTrailingParentheses(value: string) {
+  const openToClose: Record<string, string> = { '(': ')', '（': '）' };
+  const closingParentheses = new Set(Object.values(openToClose));
+  const stack: Array<{ character: string; index: number }> = [];
+
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (openToClose[character]) {
+      stack.push({ character, index });
+      continue;
+    }
+
+    if (closingParentheses.has(character)) {
+      const opening = stack.at(-1);
+      if (opening && openToClose[opening.character] === character) {
+        stack.pop();
+      }
+    }
+  }
+
+  if (stack.length === 0) return value;
+
+  return value.slice(0, stack[0].index).trimEnd();
+}
+
+function trimTrailingCaptionPunctuation(value: string) {
+  return value.replace(/\s+[.,;:!?-]+$/, '').trim();
 }
