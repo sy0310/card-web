@@ -4,6 +4,7 @@ import {
   getStorefrontPageRange,
   hasNextStorefrontPage,
   mergeStorefrontPage,
+  normalizeStorefrontSearch,
   STOREFRONT_PAGE_SIZE,
 } from './storefrontPagination.ts';
 
@@ -11,6 +12,10 @@ test('storefront pagination requests a bounded first page and the next contiguou
   assert.equal(STOREFRONT_PAGE_SIZE, 40);
   assert.deepEqual(getStorefrontPageRange(0), [0, 39]);
   assert.deepEqual(getStorefrontPageRange(40), [40, 79]);
+});
+
+test('storefront search normalizes whitespace and filter-control punctuation', () => {
+  assert.equal(normalizeStorefrontSearch('  test, (card)  '), 'test card');
 });
 
 test('storefront pagination only exposes Load More after a full page', () => {
