@@ -15,6 +15,7 @@ import {
   getStorefrontPageRange,
   hasNextStorefrontPage,
   mergeStorefrontPage,
+  normalizeStorefrontSearch,
 } from '@/lib/storefrontPagination';
 
 type StorefrontCard = {
@@ -41,6 +42,7 @@ export default function Home() {
   const [loadError, setLoadError] = useState('');
   const [hasMore, setHasMore] = useState(true);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
   const [isWishlistOpen, setIsWishlistOpen] = useState(false);
   const [siteTitle, setSiteTitle] = useState('K-POP CARD');
@@ -56,6 +58,12 @@ export default function Home() {
   const siteTitleWords = useMemo(() => {
     return safeSiteTitle.split(/\s+/).filter(Boolean);
   }, [safeSiteTitle]);
+  const normalizedSearch = useMemo(() => normalizeStorefrontSearch(debouncedSearch), [debouncedSearch]);
+
+  useEffect(() => {
+    const debounce = window.setTimeout(() => setDebouncedSearch(search), 300);
+    return () => window.clearTimeout(debounce);
+  }, [search]);
 
   const loadCardsPage = useCallback(async (reset = false) => {
     if (isPageRequestInFlightRef.current) return;
@@ -76,13 +84,16 @@ export default function Home() {
     try {
       const cardsController = new AbortController();
       const cardsTimeout = window.setTimeout(() => cardsController.abort(), 12_000);
-      const { data, error } = await supabase
+      let cardsQuery = supabase
         .from('cards')
         .select('*')
         .order('created_at', { ascending: false })
-        .range(from, to)
-        .retry(false)
-        .abortSignal(cardsController.signal);
+        .range(from, to);
+      if (activeCategory !== 'All') cardsQuery = cardsQuery.eq('group_name', activeCategory);
+      if (normalizedSearch) {
+        cardsQuery = cardsQuery.or(`title.ilike.%${normalizedSearch}%,group_name.ilike.%${normalizedSearch}%`);
+      }
+      const { data, error } = await cardsQuery.retry(false).abortSignal(cardsController.signal);
       window.clearTimeout(cardsTimeout);
 
       if (error) throw new Error(error.message || 'Could not load the card collection.');
@@ -151,7 +162,7 @@ export default function Home() {
         setLoadingMore(false);
       }
     }
-  }, []);
+  }, [activeCategory, normalizedSearch]);
 
   useEffect(() => {
     isMountedRef.current = true;

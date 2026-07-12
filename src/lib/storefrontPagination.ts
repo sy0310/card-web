@@ -1,5 +1,9 @@
 export const STOREFRONT_PAGE_SIZE = 40;
 
+export function normalizeStorefrontSearch(value: string) {
+  return String(value ?? '').replace(/[,()]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
 export function getStorefrontPageRange(offset: number, pageSize = STOREFRONT_PAGE_SIZE): [number, number] {
   const safeOffset = Number.isFinite(offset) ? Math.max(0, Math.floor(offset)) : 0;
   const safePageSize = Number.isFinite(pageSize) ? Math.max(1, Math.floor(pageSize)) : STOREFRONT_PAGE_SIZE;
