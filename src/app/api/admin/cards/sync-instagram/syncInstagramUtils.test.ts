@@ -53,3 +53,40 @@ test('parseInstagramCaption also strips misspelled availability labels', () => {
     'riize ll makestar',
   );
 });
+
+test('parseInstagramCaption removes dangling trailing parentheses from title and POB metadata', () => {
+  assert.deepEqual(
+    parseInstagramCaption('#meguroamp ampers&one definition minirecord doctor ver (\n$16'),
+    {
+      title: 'ampers&one definition minirecord doctor ver',
+      price: 16,
+      group: 'Ampers&one',
+      album_era: 'definition',
+      pob_name: 'minirecord doctor ver',
+    },
+  );
+
+  assert.equal(
+    parseInstagramCaption('#meguroamp ampers&one definition minirecord doctor ver （').pob_name,
+    'minirecord doctor ver',
+  );
+});
+
+test('parseInstagramCaption preserves balanced parentheses and does not truncate inside them', () => {
+  assert.deepEqual(
+    parseInstagramCaption('#megurogidle (G)I-DLE 2 photobook benefit (set ver)\n$20'),
+    {
+      title: '(G)I-DLE 2 photobook benefit (set ver)',
+      price: 20,
+      group: '(G)I-DLE',
+      album_era: '2',
+      pob_name: 'photobook benefit (set ver)',
+    },
+  );
+
+  const longCaption = `#meguroamp ampers&one ${'a'.repeat(64)} (special version)`;
+  const parsed = parseInstagramCaption(longCaption);
+  assert.ok(parsed.title.length <= 80);
+  assert.equal(parsed.title.endsWith('('), false);
+  assert.equal(parsed.title.endsWith('（'), false);
+});
