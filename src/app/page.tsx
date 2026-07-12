@@ -14,6 +14,7 @@ import {
 import {
   buildStorefrontSearchFilter,
   createStorefrontRequestTracker,
+  getStorefrontEmptyState,
   getStorefrontLoadErrorMessage,
   getStorefrontSearchTerms,
   getStorefrontPageRange,
@@ -333,6 +334,11 @@ export default function Home() {
     }
     return safeCategories.slice(0, visibleLimit);
   }, [categories, isExpanded]);
+  const storefrontEmptyState = getStorefrontEmptyState({
+    cardCount: cards.length,
+    loading,
+    loadError,
+  });
 
   return (
     <main className={styles.main}>
@@ -387,16 +393,18 @@ export default function Home() {
       </div>
 
       <div className={styles.grid}>
-        {loading && cards.length === 0 ? (
+        {storefrontEmptyState === 'error' ? (
           <div className={styles.fullWidth}>
-            <p className={styles.loadingText}>{loadError || 'Fetching collection...'}</p>
-            {loadError && (
-              <button className={styles.retryBtn} onClick={() => void loadCardsPage(true)}>
-                Try again
-              </button>
-            )}
+            <p className={styles.loadingText}>{loadError}</p>
+            <button className={styles.retryBtn} onClick={() => void loadCardsPage(true)}>
+              Try again
+            </button>
           </div>
-        ) : (Array.isArray(cards) && cards.length > 0) ? (
+        ) : storefrontEmptyState === 'loading' ? (
+          <div className={styles.fullWidth}>
+            <p className={styles.loadingText}>Fetching collection...</p>
+          </div>
+        ) : storefrontEmptyState === 'cards' ? (
           (Array.isArray(cards) ? cards : []).map(card => (
             card && <CardItem key={card.id} card={card} />
           ))

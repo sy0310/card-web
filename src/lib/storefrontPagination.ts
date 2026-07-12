@@ -51,6 +51,22 @@ export function getStorefrontLoadErrorMessage({
   return 'Could not load cards. Check your connection and try again.';
 }
 
+export function getStorefrontEmptyState({
+  cardCount,
+  loading,
+  loadError,
+}: {
+  cardCount: number;
+  loading: boolean;
+  loadError: string;
+}) {
+  if (Number.isFinite(cardCount) && cardCount > 0) return 'cards';
+  if (loadError.trim()) return 'error';
+  if (loading) return 'loading';
+
+  return 'empty';
+}
+
 export function getStorefrontPageRange(offset: number, pageSize = STOREFRONT_PAGE_SIZE): [number, number] {
   const safeOffset = Number.isFinite(offset) ? Math.max(0, Math.floor(offset)) : 0;
   const safePageSize = Number.isFinite(pageSize) ? Math.max(1, Math.floor(pageSize)) : STOREFRONT_PAGE_SIZE;
