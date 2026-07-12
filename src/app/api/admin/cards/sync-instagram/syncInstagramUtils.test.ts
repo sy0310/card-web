@@ -100,3 +100,28 @@ test('parseInstagramCaption preserves balanced parentheses and does not truncate
   assert.equal(parsed.title.endsWith('('), false);
   assert.equal(parsed.title.endsWith('（'), false);
 });
+
+test('parseInstagramCaption removes attached trailing English and Chinese commas', () => {
+  assert.deepEqual(
+    parseInstagramCaption('#meguroamp ampers&one definition yizhiyu R2,\n$16'),
+    {
+      title: 'ampers&one definition yizhiyu R2',
+      price: 16,
+      group: 'Ampers&one',
+      album_era: 'definition',
+      pob_name: 'yizhiyu R2',
+    },
+  );
+
+  assert.equal(
+    parseInstagramCaption('#meguroamp ampers&one loud&proud yizhiyu final R，').title,
+    'ampers&one loud&proud yizhiyu final R',
+  );
+});
+
+test('parseInstagramCaption preserves punctuation inside metadata text', () => {
+  const parsed = parseInstagramCaption('#meguroamp ampers&one definition benefit, special ver');
+
+  assert.equal(parsed.title, 'ampers&one definition benefit, special ver');
+  assert.equal(parsed.pob_name, 'benefit, special ver');
+});
