@@ -253,5 +253,5 @@ function removeUnbalancedTrailingParentheses(value: string) {
 }
 
 function trimTrailingCaptionPunctuation(value: string) {
-  return value.replace(/\s+[.,;:!?-]+$/, '').trim();
+  return value.replace(/[.,;:!?，。；：！？-]+$/g, '').trim();
 }
