@@ -17,6 +17,7 @@ type CardProps = {
     image_url: string;
     group_name: string;
     inventory_count: number;
+    availability_status?: 'available' | 'pending' | 'archived';
     rarity?: string;
     pob_name?: string;
     purchase_options?: PurchaseOption[];
@@ -31,6 +32,8 @@ export default function CardItem({ card }: CardProps) {
 
   const inventoryCount = Number.isFinite(Number(card.inventory_count)) ? Number(card.inventory_count) : 0;
   const isSoldOut = inventoryCount <= 0;
+  const isPending = card.availability_status === 'pending';
+  const isUnavailable = isSoldOut || isPending;
 
   const title = card.title || 'Untitled';
   const imageUrl = card.image_url || '';
@@ -61,7 +64,7 @@ export default function CardItem({ card }: CardProps) {
   };
 
   const handleAddClick = () => {
-    if (isSoldOut) return;
+    if (isUnavailable) return;
     if (!hasMultipleOptions) {
       addOptionToWishlist(activeOptions[0]);
       return;
@@ -74,9 +77,14 @@ export default function CardItem({ card }: CardProps) {
     <div className={`${styles.card} glass fade-in`}>
       <div className={styles.imageContainer}>
         <img src={imageUrl} alt={title} className={styles.image} loading="lazy" decoding="async" />
-        {isSoldOut && (
+        {isSoldOut && !isPending && (
           <div className={styles.soldOutOverlay}>
             <span>SOLD OUT</span>
+          </div>
+        )}
+        {isPending && (
+          <div className={styles.pendingOverlay}>
+            <span>PENDING</span>
           </div>
         )}
         {rarity && <span className={styles.rarityBadge}>{rarity}</span>}
@@ -96,12 +104,12 @@ export default function CardItem({ card }: CardProps) {
           <button 
             className={styles.addBtn}
             onClick={handleAddClick}
-            disabled={isSoldOut}
+            disabled={isUnavailable}
           >
-            {isSoldOut ? 'Sold Out' : hasMultipleOptions ? 'Choose Option' : 'Add to Wishlist'}
+            {isPending ? 'Pending' : isSoldOut ? 'Sold Out' : hasMultipleOptions ? 'Choose Option' : 'Add to Wishlist'}
           </button>
         </div>
-        {showOptionPicker && !isSoldOut && (
+        {showOptionPicker && !isUnavailable && (
           <div className={styles.optionPicker}>
             {activeOptions.map(option => (
               <button

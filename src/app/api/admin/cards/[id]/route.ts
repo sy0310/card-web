@@ -32,6 +32,7 @@ function buildDraftFromBody(body: Record<string, unknown>): CardEditDraft {
     inventory_count: readText(body.inventory_count),
     original_ig_url: readText(body.original_ig_url),
     source: readText(body.source || 'manual'),
+    availability_status: readText(body.availability_status || 'available'),
     pob_name: readText(body.pob_name),
   };
 }

@@ -12,6 +12,7 @@ import { fetchAdminJsonWithRetry, formatAdminFetchError } from '@/lib/client/adm
 import styles from './page.module.css';
 import {
   type AdminSettings,
+  type CardAvailabilityStatus,
   type CardEditDraft,
   type CardUpdatePayload,
   type PurchaseOptionDraft,
@@ -40,7 +41,7 @@ import {
   parseWishlistQuantity,
 } from './adminDashboardUtils';
 
-type AdminTab = 'inventory' | 'wishlists' | 'settings';
+type AdminTab = 'inventory' | 'wishlists' | 'analytics' | 'settings';
 
 type AdminCard = CardUpdatePayload & {
   id: string;
@@ -66,6 +67,10 @@ type WishlistItem = {
   purchase_option_id?: string | null;
   option_label_snapshot?: string | null;
   unit_price_snapshot?: number | string | null;
+  card_title_snapshot?: string | null;
+  group_name_snapshot?: string | null;
+  album_era_snapshot?: string | null;
+  image_url_snapshot?: string | null;
   cards?: AdminCard | null;
 };
 
@@ -119,6 +124,23 @@ type InstagramConnectionResponse = {
   error?: string;
 };
 
+type AnalyticsRank = { label: string; count: number; revenue?: number };
+
+type AnalyticsResponse = {
+  days: number;
+  overview: {
+    request_orders: number;
+    requested_items: number;
+    request_value: number;
+    completed_orders: number;
+    completed_value: number;
+  };
+  searches: { total: number; top_queries: AnalyticsRank[]; zero_result_queries: AnalyticsRank[] };
+  requests: { top_groups: AnalyticsRank[]; top_albums: AnalyticsRank[]; top_cards: AnalyticsRank[] };
+  completed: { top_groups: AnalyticsRank[] };
+  error?: string;
+};
+
 function getPersistentPurchaseOptionId(optionId?: string | null) {
   return optionId && !optionId.startsWith('fallback-') ? optionId : null;
 }
@@ -140,7 +162,7 @@ export default function AdminDashboard() {
   const [savingCard, setSavingCard] = useState(false);
   const [deletingCardId, setDeletingCardId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkAvailabilityUpdating, setBulkAvailabilityUpdating] = useState(false);
   const [selectedWishlistIds, setSelectedWishlistIds] = useState<string[]>([]);
   const [updatingWishlists, setUpdatingWishlists] = useState(false);
   const [editingWishlist, setEditingWishlist] = useState<Wishlist | null>(null);
@@ -171,6 +193,9 @@ export default function AdminDashboard() {
   const [savingInstagramSettings, setSavingInstagramSettings] = useState(false);
   const [testingInstagramConnection, setTestingInstagramConnection] = useState(false);
   const [syncingInstagram, setSyncingInstagram] = useState(false);
+  const [analyticsDays, setAnalyticsDays] = useState<7 | 30 | 90>(30);
+  const [analytics, setAnalytics] = useState<AnalyticsResponse | null>(null);
+  const [loadingAnalytics, setLoadingAnalytics] = useState(false);
   const router = useRouter();
   const [searchTerm, setSearchTerm] = useState('');
   const [wishlistSearchTerm, setWishlistSearchTerm] = useState('');
@@ -207,7 +232,7 @@ export default function AdminDashboard() {
       const notes = String(wishlist.notes || '').toLowerCase();
       const status = String(wishlist.status || '').toLowerCase();
       const itemText = (wishlist.wishlist_items ?? [])
-        .map(item => item.cards?.title || '')
+        .map(item => item.card_title_snapshot || item.cards?.title || '')
         .join(' ')
         .toLowerCase();
 
@@ -261,16 +286,16 @@ export default function AdminDashboard() {
     const lineItems: ReceiptLineItem[] = [];
     for (const item of wishlistDraft.items) {
       const card = cardsById.get(item.card_id);
-      if (!card) continue;
+      if (!card && !item.card_title_snapshot) continue;
 
       lineItems.push({
         id: item.key,
-        title: card.title || 'Untitled card',
-        price: Number(item.unit_price_snapshot ?? card.price) || 0,
-        unit_price: Number(item.unit_price_snapshot ?? card.price) || 0,
+        title: item.card_title_snapshot || card?.title || 'Untitled card',
+        price: Number(item.unit_price_snapshot ?? card?.price) || 0,
+        unit_price: Number(item.unit_price_snapshot ?? card?.price) || 0,
         option_label: item.option_label_snapshot || 'Single',
-        image_url: card.image_url || '',
-        group_name: card.group_name || card.member_name || card.album_era || '',
+        image_url: item.image_url_snapshot || card?.image_url || '',
+        group_name: item.group_name_snapshot || card?.group_name || card?.member_name || item.album_era_snapshot || card?.album_era || '',
         quantity: parseWishlistQuantity(item.quantity),
       });
     }
@@ -441,6 +466,21 @@ export default function AdminDashboard() {
       setStatusMessage(`Instagram settings unavailable: ${formatAdminFetchError(error, 'Loading Instagram settings')}`);
     }
   }, []);
+
+  const fetchAnalytics = useCallback(async (days = analyticsDays) => {
+    setLoadingAnalytics(true);
+    try {
+      const { response, data } = await fetchAdminJsonWithRetry<AnalyticsResponse>(
+        `/api/admin/analytics?days=${days}`,
+      );
+      if (!response.ok || data.error) throw new Error(data.error || 'Could not load analytics.');
+      setAnalytics(data);
+    } catch (error: unknown) {
+      setStatusMessage(`Analytics unavailable: ${formatAdminFetchError(error, 'Loading analytics')}`);
+    } finally {
+      setLoadingAnalytics(false);
+    }
+  }, [analyticsDays]);
 
   const fetchData = useCallback(async () => {
     await Promise.all([fetchCards(), fetchWishlists(), fetchSettings(), fetchInstagramData()]);
@@ -792,85 +832,55 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleDeleteCard = async (card: AdminCard) => {
-    const confirmed = window.confirm(`Delete "${card.title}" from inventory?`);
-    if (!confirmed) return;
-
-    setDeletingCardId(card.id);
+  const handleUpdateAvailability = async (
+    cardIds: string[],
+    availabilityStatus: CardAvailabilityStatus,
+  ) => {
+    if (cardIds.length === 0) return;
+    setBulkAvailabilityUpdating(true);
     setStatusMessage('');
-
-    const { error } = await supabase
-      .from('cards')
-      .delete()
-      .eq('id', card.id);
-
-    if (error) {
-      setStatusMessage(`Error deleting card: ${error.message}`);
-    } else {
-      // Clean up storage file if it exists
-      if (card.image_url && card.image_url.includes('/storage/v1/object/public/cards/')) {
-        const filePath = card.image_url.split('/storage/v1/object/public/cards/')[1];
-        if (filePath) {
-          await supabase.storage.from('cards').remove([filePath]);
-        }
+    try {
+      const { response, data } = await fetchAdminJsonWithRetry<{
+        success?: boolean;
+        cards?: Array<{ id: string; availability_status: CardAvailabilityStatus }>;
+        error?: string;
+      }>('/api/admin/cards/availability', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ card_ids: cardIds, availability_status: availabilityStatus }),
+      });
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not update card availability.');
+      const statusById = new Map((data.cards ?? []).map(card => [card.id, card.availability_status]));
+      setCards(current => current.map(card => statusById.has(card.id)
+        ? { ...card, availability_status: statusById.get(card.id)! }
+        : card));
+      setStatusMessage(`${cardIds.length} card${cardIds.length === 1 ? '' : 's'} set to ${availabilityStatus}.`);
+      setSelectedIds([]);
+      if (editingCard && cardIds.includes(editingCard.id)) {
+        setEditingCard(current => current ? { ...current, availability_status: availabilityStatus } : current);
+        setCardDraft(current => current ? { ...current, availability_status: availabilityStatus } : current);
       }
-      setCards(current => current.filter(item => item.id !== card.id));
-      setStatusMessage('Card deleted.');
-      if (editingCard?.id === card.id) closeCardEditor();
+    } catch (error: unknown) {
+      setStatusMessage(`Could not update availability: ${formatAdminFetchError(error, 'Updating availability')}`);
+    } finally {
+      setBulkAvailabilityUpdating(false);
     }
+  };
+
+  const handleDeleteCard = async (card: AdminCard) => {
+    const confirmed = window.confirm(`Archive "${card.title}"? It will be hidden from customers but preserved for order history.`);
+    if (!confirmed) return;
+    setDeletingCardId(card.id);
+    await handleUpdateAvailability([card.id], 'archived');
     setDeletingCardId(null);
+    if (editingCard?.id === card.id) closeCardEditor();
   };
 
   const handleDeleteSelected = async () => {
     if (selectedIds.length === 0) return;
-    const confirmed = window.confirm(`确定要从库存中删除选中的 ${selectedIds.length} 张卡片吗？此操作无法撤销。`);
+    const confirmed = window.confirm(`Archive the selected ${selectedIds.length} cards? They will be hidden from customers and retained for order history.`);
     if (!confirmed) return;
-
-    setBulkDeleting(true);
-    setStatusMessage('');
-
-    try {
-      const { error } = await supabase
-        .from('cards')
-        .delete()
-        .in('id', selectedIds);
-
-      if (error) {
-        setStatusMessage(`批量删除卡片失败: ${error.message}`);
-      } else {
-        const cardsToDelete = cards.filter(c => selectedIds.includes(c.id));
-        const filePaths = cardsToDelete
-          .map(card => {
-            if (card.image_url && card.image_url.includes('/storage/v1/object/public/cards/')) {
-              return card.image_url.split('/storage/v1/object/public/cards/')[1];
-            }
-            return null;
-          })
-          .filter(Boolean) as string[];
-
-        if (filePaths.length > 0) {
-          try {
-            await supabase.storage.from('cards').remove(filePaths);
-          } catch (storageErr) {
-            console.error('Error removing storage files:', storageErr);
-          }
-        }
-
-        setCards(current => current.filter(item => !selectedIds.includes(item.id)));
-        setStatusMessage(`成功删除选中的 ${selectedIds.length} 张卡片。`);
-        
-        if (editingCard && selectedIds.includes(editingCard.id)) {
-          closeCardEditor();
-        }
-        
-        setSelectedIds([]);
-      }
-    } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      setStatusMessage(`批量删除发生错误: ${errMsg}`);
-    } finally {
-      setBulkDeleting(false);
-    }
+    await handleUpdateAvailability(selectedIds, 'archived');
   };
 
   const handleBulkDeleteWishlists = async () => {
@@ -965,7 +975,8 @@ export default function AdminDashboard() {
     key: string,
     patch: Partial<Pick<
       WishlistDraftItem,
-      'card_id' | 'purchase_option_id' | 'option_label_snapshot' | 'unit_price_snapshot' | 'quantity'
+      'card_id' | 'purchase_option_id' | 'option_label_snapshot' | 'unit_price_snapshot'
+      | 'card_title_snapshot' | 'group_name_snapshot' | 'album_era_snapshot' | 'image_url_snapshot' | 'quantity'
     >>,
   ) => {
     setWishlistDraft(current => current ? {
@@ -1003,6 +1014,10 @@ export default function AdminDashboard() {
               purchase_option_id: purchaseOptionId,
               option_label_snapshot: optionLabel,
               unit_price_snapshot: unitPrice,
+              card_title_snapshot: selectedCard?.title || '',
+              group_name_snapshot: selectedCard?.group_name || '',
+              album_era_snapshot: selectedCard?.album_era || '',
+              image_url_snapshot: selectedCard?.image_url || '',
               quantity: '1',
             },
           ],
@@ -1235,6 +1250,7 @@ export default function AdminDashboard() {
     setSelectedIds([]);
     setSelectedWishlistIds([]);
     closeWishlistEditor();
+    if (tab === 'analytics') void fetchAnalytics();
   };
 
   if (!session) return <div className={styles.loading}>Checking session...</div>;
@@ -1416,6 +1432,17 @@ export default function AdminDashboard() {
                     onChange={event => handleCardDraftChange('price', event.target.value)}
                     required
                   />
+                </label>
+                <label className={styles.field}>
+                  <span>Storefront availability</span>
+                  <select
+                    value={cardDraft.availability_status}
+                    onChange={event => handleCardDraftChange('availability_status', event.target.value)}
+                  >
+                    <option value="available">Available — customers can add it</option>
+                    <option value="pending">Pending — visible but unavailable</option>
+                    <option value="archived">Archived — hidden from customers</option>
+                  </select>
                 </label>
                 <div className={`${styles.field} ${styles.wideField}`}>
                   <div className={styles.purchaseOptionsHeader}>
@@ -1602,7 +1629,7 @@ export default function AdminDashboard() {
                 onClick={() => void handleDeleteCard(editingCard)}
                 disabled={deletingCardId === editingCard.id}
               >
-                {deletingCardId === editingCard.id ? 'Deleting...' : 'Delete card'}
+                {deletingCardId === editingCard.id ? 'Archiving...' : 'Archive card'}
               </button>
               <div className={styles.footerActions}>
                 <button type="button" className={styles.secondaryBtn} onClick={closeCardEditor}>
@@ -1780,6 +1807,10 @@ export default function AdminDashboard() {
                                 purchase_option_id: getPersistentPurchaseOptionId(nextOption?.id),
                                 option_label_snapshot: nextOption?.label || 'Single',
                                 unit_price_snapshot: Number(nextOption?.price ?? nextCard?.price ?? 0) || 0,
+                                card_title_snapshot: nextCard?.title || '',
+                                group_name_snapshot: nextCard?.group_name || '',
+                                album_era_snapshot: nextCard?.album_era || '',
+                                image_url_snapshot: nextCard?.image_url || '',
                               });
                             }}
                           >
@@ -1898,6 +1929,12 @@ export default function AdminDashboard() {
             Wishlists
           </button>
           <button
+            className={`${styles.navItem} ${activeTab === 'analytics' ? styles.active : ''}`}
+            onClick={() => handleTabChange('analytics')}
+          >
+            Analytics
+          </button>
+          <button
             className={`${styles.navItem} ${activeTab === 'settings' ? styles.active : ''}`}
             onClick={() => handleTabChange('settings')}
           >
@@ -1928,11 +1965,25 @@ export default function AdminDashboard() {
                       批量修改 ({selectedIds.length})
                     </button>
                     <button
+                      className={styles.secondaryBtn}
+                      onClick={() => void handleUpdateAvailability(selectedIds, 'pending')}
+                      disabled={bulkAvailabilityUpdating}
+                    >
+                      {bulkAvailabilityUpdating ? 'Updating...' : `Set Pending (${selectedIds.length})`}
+                    </button>
+                    <button
+                      className={styles.secondaryBtn}
+                      onClick={() => void handleUpdateAvailability(selectedIds, 'available')}
+                      disabled={bulkAvailabilityUpdating}
+                    >
+                      Set Available
+                    </button>
+                    <button
                       className={styles.dangerBtn}
                       onClick={() => void handleDeleteSelected()}
-                      disabled={bulkDeleting}
+                      disabled={bulkAvailabilityUpdating}
                     >
-                      {bulkDeleting ? 'Deleting...' : `批量删除 (${selectedIds.length})`}
+                      Archive
                     </button>
                   </>
                 )}
@@ -1992,6 +2043,7 @@ export default function AdminDashboard() {
                       <col className={styles.pobCol} />
                       <col className={styles.priceCol} />
                       <col className={styles.optionsCol} />
+                      <col className={styles.availabilityCol} />
                       <col className={styles.actionsCol} />
                     </colgroup>
                     <thead>
@@ -2015,6 +2067,7 @@ export default function AdminDashboard() {
                         <th>POB</th>
                         <th>Price</th>
                         <th>Options</th>
+                        <th>Availability</th>
                         <th className={styles.actionsHeader}>Actions</th>
                       </tr>
                     </thead>
@@ -2072,6 +2125,11 @@ export default function AdminDashboard() {
                                 ))}
                               </div>
                             </td>
+                            <td>
+                              <span className={`${styles.availabilityBadge} ${styles[`availability_${card.availability_status || 'available'}`]}`}>
+                                {card.availability_status || 'available'}
+                              </span>
+                            </td>
 
                             <td className={styles.actionsCell}>
                               <div className={styles.actionGroup}>
@@ -2083,7 +2141,7 @@ export default function AdminDashboard() {
                                   onClick={() => void handleDeleteCard(card)}
                                   disabled={deletingCardId === card.id}
                                 >
-                                  {deletingCardId === card.id ? 'Deleting' : 'Delete'}
+                                  {deletingCardId === card.id ? 'Archiving' : 'Archive'}
                                 </button>
                               </div>
                             </td>
@@ -2239,11 +2297,11 @@ export default function AdminDashboard() {
                               <div
                                 key={item.id}
                                 className={styles.wishlistItemPreview}
-                                title={item.cards?.title || 'Untitled card'}
+                                title={item.card_title_snapshot || item.cards?.title || 'Untitled card'}
                               >
-                                {item.cards?.image_url ? (
+                                {item.image_url_snapshot || item.cards?.image_url ? (
                                   <img
-                                    src={item.cards.image_url}
+                                    src={item.image_url_snapshot || item.cards?.image_url || ''}
                                     alt=""
                                     className={styles.microImg}
                                   />
@@ -2251,7 +2309,7 @@ export default function AdminDashboard() {
                                   <div className={styles.microImg} />
                                 )}
                                 <span>
-                                  <strong>{item.cards?.title || 'Untitled card'}</strong>
+                                  <strong>{item.card_title_snapshot || item.cards?.title || 'Untitled card'}</strong>
                                   <small>
                                     {item.option_label_snapshot || 'Single'} · $
                                     {Number(item.unit_price_snapshot ?? item.cards?.price ?? 0).toFixed(2)}
@@ -2281,6 +2339,72 @@ export default function AdminDashboard() {
               )}
             </div>
           </>
+        ) : activeTab === 'analytics' ? (
+          <div className={styles.analyticsView}>
+            <header className={styles.contentHeader}>
+              <div>
+                <p className={styles.eyebrow}>Demand signals</p>
+                <h1>Analytics</h1>
+              </div>
+              <div className={styles.analyticsControls}>
+                <select
+                  value={analyticsDays}
+                  onChange={event => {
+                    const days = Number(event.target.value) as 7 | 30 | 90;
+                    setAnalyticsDays(days);
+                    void fetchAnalytics(days);
+                  }}
+                  aria-label="Analytics time range"
+                >
+                  <option value={7}>Last 7 days</option>
+                  <option value={30}>Last 30 days</option>
+                  <option value={90}>Last 90 days</option>
+                </select>
+                <button className={styles.secondaryBtn} onClick={() => void fetchAnalytics()} disabled={loadingAnalytics}>
+                  {loadingAnalytics ? 'Loading...' : 'Refresh'}
+                </button>
+              </div>
+            </header>
+
+            {analytics ? (
+              <>
+                <section className={styles.stats}>
+                  <div className={styles.statCard}><p>Wishlist requests</p><h3>{analytics.overview.request_orders}</h3></div>
+                  <div className={styles.statCard}><p>Requested cards</p><h3>{analytics.overview.requested_items}</h3></div>
+                  <div className={styles.statCard}><p>Request value</p><h3>${analytics.overview.request_value.toFixed(2)}</h3></div>
+                  <div className={styles.statCard}><p>Completed value</p><h3>${analytics.overview.completed_value.toFixed(2)}</h3></div>
+                </section>
+                <section className={styles.analyticsGrid}>
+                  <div className={styles.analyticsPanel}>
+                    <div className={styles.analyticsPanelHeader}><h2>Top search keywords</h2><span>{analytics.searches.total} searches</span></div>
+                    {analytics.searches.top_queries.length > 0 ? <ol className={styles.rankList}>{analytics.searches.top_queries.map(rank => <li key={rank.label}><strong>{rank.label}</strong><span>{rank.count}</span></li>)}</ol> : <p className={styles.emptyText}>No search data yet.</p>}
+                  </div>
+                  <div className={styles.analyticsPanel}>
+                    <div className={styles.analyticsPanelHeader}><h2>Searches with no results</h2><span>Demand gap</span></div>
+                    {analytics.searches.zero_result_queries.length > 0 ? <ol className={styles.rankList}>{analytics.searches.zero_result_queries.map(rank => <li key={rank.label}><strong>{rank.label}</strong><span>{rank.count}</span></li>)}</ol> : <p className={styles.emptyText}>No zero-result searches.</p>}
+                  </div>
+                  <div className={styles.analyticsPanel}>
+                    <div className={styles.analyticsPanelHeader}><h2>Most requested groups</h2><span>All requests</span></div>
+                    {analytics.requests.top_groups.length > 0 ? <ol className={styles.rankList}>{analytics.requests.top_groups.map(rank => <li key={rank.label}><strong>{rank.label}</strong><span>{rank.count} · ${Number(rank.revenue ?? 0).toFixed(2)}</span></li>)}</ol> : <p className={styles.emptyText}>No requests yet.</p>}
+                  </div>
+                  <div className={styles.analyticsPanel}>
+                    <div className={styles.analyticsPanelHeader}><h2>Most requested albums / eras</h2><span>All requests</span></div>
+                    {analytics.requests.top_albums.length > 0 ? <ol className={styles.rankList}>{analytics.requests.top_albums.map(rank => <li key={rank.label}><strong>{rank.label}</strong><span>{rank.count} · ${Number(rank.revenue ?? 0).toFixed(2)}</span></li>)}</ol> : <p className={styles.emptyText}>No requests yet.</p>}
+                  </div>
+                  <div className={styles.analyticsPanel}>
+                    <div className={styles.analyticsPanelHeader}><h2>Most requested cards</h2><span>All requests</span></div>
+                    {analytics.requests.top_cards.length > 0 ? <ol className={styles.rankList}>{analytics.requests.top_cards.map(rank => <li key={rank.label}><strong>{rank.label}</strong><span>{rank.count} · ${Number(rank.revenue ?? 0).toFixed(2)}</span></li>)}</ol> : <p className={styles.emptyText}>No requests yet.</p>}
+                  </div>
+                  <div className={styles.analyticsPanel}>
+                    <div className={styles.analyticsPanelHeader}><h2>Completed sales by group</h2><span>{analytics.overview.completed_orders} orders</span></div>
+                    {analytics.completed.top_groups.length > 0 ? <ol className={styles.rankList}>{analytics.completed.top_groups.map(rank => <li key={rank.label}><strong>{rank.label}</strong><span>{rank.count} · ${Number(rank.revenue ?? 0).toFixed(2)}</span></li>)}</ol> : <p className={styles.emptyText}>No completed orders in this period.</p>}
+                  </div>
+                </section>
+              </>
+            ) : (
+              <div className={styles.placeholder}><p>{loadingAnalytics ? 'Loading analytics...' : 'Open this panel to load search and order analytics.'}</p></div>
+            )}
+          </div>
         ) : (
           <div className={styles.settingsView}>
             <header className={styles.contentHeader}>

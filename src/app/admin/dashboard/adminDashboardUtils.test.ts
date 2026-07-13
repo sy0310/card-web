@@ -20,6 +20,7 @@ import {
   normalizePurchaseOptionDrafts,
   normalizeInstagramUrl,
   normalizeAdminSettings,
+  normalizeCardAvailabilityStatus,
 } from './adminDashboardUtils.ts';
 
 test('buildCardUpdatePayload trims text fields and coerces numeric values', () => {
@@ -35,6 +36,7 @@ test('buildCardUpdatePayload trims text fields and coerces numeric values', () =
     inventory_count: '-7',
     original_ig_url: ' ',
     source: ' instagram ',
+    availability_status: ' pending ',
   });
 
   assert.deepEqual(payload, {
@@ -49,6 +51,7 @@ test('buildCardUpdatePayload trims text fields and coerces numeric values', () =
     inventory_count: 0,
     original_ig_url: '',
     source: 'instagram',
+    availability_status: 'pending',
     pob_name: '',
   });
 });
@@ -67,9 +70,16 @@ test('getCardDraftErrors flags missing required card fields', () => {
       inventory_count: '2',
       original_ig_url: '',
       source: '',
+      availability_status: '',
     }),
     ['Title is required.', 'Price must be a valid number.'],
   );
+});
+
+test('normalizeCardAvailabilityStatus accepts only storefront-safe statuses', () => {
+  assert.equal(normalizeCardAvailabilityStatus('pending'), 'pending');
+  assert.equal(normalizeCardAvailabilityStatus(' ARCHIVED '), 'archived');
+  assert.equal(normalizeCardAvailabilityStatus('delete'), 'available');
 });
 
 test('applyCardPatch updates one card without mutating the original list', () => {

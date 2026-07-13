@@ -10,6 +10,7 @@ export type CardEditDraft = {
   inventory_count: string;
   original_ig_url: string;
   source: string;
+  availability_status: string;
   pob_name?: string;
 };
 
@@ -25,8 +26,11 @@ export type CardUpdatePayload = {
   inventory_count: number;
   original_ig_url: string;
   source: string;
+  availability_status: CardAvailabilityStatus;
   pob_name?: string;
 };
+
+export type CardAvailabilityStatus = 'available' | 'pending' | 'archived';
 
 export type PurchaseOptionDraft = {
   key: string;
@@ -66,6 +70,10 @@ export type WishlistDraftItem = {
   purchase_option_id?: string | null;
   option_label_snapshot?: string;
   unit_price_snapshot?: number | null;
+  card_title_snapshot?: string;
+  group_name_snapshot?: string;
+  album_era_snapshot?: string;
+  image_url_snapshot?: string;
   quantity: string;
 };
 
@@ -75,6 +83,7 @@ export type WishlistCardSummary = {
   price?: number | string;
   image_url?: string;
   group_name?: string;
+  album_era?: string;
   purchase_options?: PurchaseOptionPayload[];
 };
 
@@ -89,6 +98,10 @@ export type WishlistStoredItem = {
   purchase_option_id?: string | null;
   option_label_snapshot?: string | null;
   unit_price_snapshot?: number | string | null;
+  card_title_snapshot?: string | null;
+  group_name_snapshot?: string | null;
+  album_era_snapshot?: string | null;
+  image_url_snapshot?: string | null;
   cards?: WishlistCardSummary | null;
 };
 
@@ -116,6 +129,11 @@ const settingKeys: (keyof AdminSettings)[] = [
 ];
 
 const trimValue = (value: unknown) => String(value ?? '').trim();
+
+export function normalizeCardAvailabilityStatus(value: unknown): CardAvailabilityStatus {
+  const status = trimValue(value).toLowerCase();
+  return status === 'pending' || status === 'archived' ? status : 'available';
+}
 
 const parseMoney = (value: string) => {
   const parsed = Number(value);
@@ -385,6 +403,7 @@ export function createCardDraft(card: Partial<CardUpdatePayload>): CardEditDraft
     inventory_count: trimValue(card.inventory_count),
     original_ig_url: trimValue(card.original_ig_url),
     source: trimValue(card.source || 'manual'),
+    availability_status: normalizeCardAvailabilityStatus(card.availability_status),
     pob_name: trimValue(card.pob_name),
   };
 }
@@ -414,6 +433,7 @@ export function buildCardUpdatePayload(draft: CardEditDraft): CardUpdatePayload 
     inventory_count: parseCount(draft.inventory_count),
     original_ig_url: normalizeInstagramUrl(draft.original_ig_url),
     source: trimValue(draft.source || 'manual'),
+    availability_status: normalizeCardAvailabilityStatus(draft.availability_status),
     pob_name: trimValue(draft.pob_name),
   };
 }
@@ -508,12 +528,21 @@ export function createWishlistItemsDraft(items: WishlistStoredItem[] = []): Wish
       continue;
     }
 
+    const titleSnapshot = trimValue(item.card_title_snapshot) || trimValue(item.cards?.title);
+    const groupSnapshot = trimValue(item.group_name_snapshot) || trimValue(item.cards?.group_name);
+    const albumSnapshot = trimValue(item.album_era_snapshot) || trimValue(item.cards?.album_era);
+    const imageSnapshot = trimValue(item.image_url_snapshot) || trimValue(item.cards?.image_url);
+
     groups.set(key, {
       key,
       card_id: cardId,
       purchase_option_id: purchaseOptionId,
       option_label_snapshot: optionLabel,
       unit_price_snapshot: unitPrice,
+      ...(titleSnapshot ? { card_title_snapshot: titleSnapshot } : {}),
+      ...(groupSnapshot ? { group_name_snapshot: groupSnapshot } : {}),
+      ...(albumSnapshot ? { album_era_snapshot: albumSnapshot } : {}),
+      ...(imageSnapshot ? { image_url_snapshot: imageSnapshot } : {}),
       quantity: '1',
     });
   }
@@ -542,12 +571,20 @@ export function buildWishlistItemInsertRows(
     Array.from({ length: parseWishlistQuantity(item.quantity) }, () => {
       const card = cardsById.get(item.card_id);
       const unitPrice = getWishlistItemUnitPrice(item, card);
+      const titleSnapshot = trimValue(item.card_title_snapshot) || trimValue(card?.title);
+      const groupSnapshot = trimValue(item.group_name_snapshot) || trimValue(card?.group_name);
+      const albumSnapshot = trimValue(item.album_era_snapshot) || trimValue(card?.album_era);
+      const imageSnapshot = trimValue(item.image_url_snapshot) || trimValue(card?.image_url);
       return {
         wishlist_id: wishlistId,
         card_id: item.card_id,
         purchase_option_id: trimValue(item.purchase_option_id) || null,
         option_label_snapshot: trimValue(item.option_label_snapshot) || 'Single',
         unit_price_snapshot: unitPrice,
+        ...(titleSnapshot ? { card_title_snapshot: titleSnapshot } : {}),
+        ...(groupSnapshot ? { group_name_snapshot: groupSnapshot } : {}),
+        ...(albumSnapshot ? { album_era_snapshot: albumSnapshot } : {}),
+        ...(imageSnapshot ? { image_url_snapshot: imageSnapshot } : {}),
       };
     }),
   );

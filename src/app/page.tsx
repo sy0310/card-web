@@ -30,14 +30,16 @@ type StorefrontCard = {
   image_url: string;
   group_name: string;
   inventory_count: number;
+  availability_status: 'available' | 'pending' | 'archived';
   rarity?: string;
   pob_name?: string;
   purchase_options: PurchaseOption[];
 };
 
-type StorefrontCardRow = Omit<StorefrontCard, 'price' | 'inventory_count' | 'purchase_options'> & {
+type StorefrontCardRow = Omit<StorefrontCard, 'price' | 'inventory_count' | 'purchase_options' | 'availability_status'> & {
   price: number | string | null;
   inventory_count: number | string | null;
+  availability_status?: string | null;
 };
 
 const STOREFRONT_REQUEST_TIMEOUT_MS = 12_000;
@@ -63,6 +65,7 @@ export default function Home() {
   const isLoadMoreRequestInFlightRef = useRef(false);
   const isMountedRef = useRef(true);
   const [requestTracker] = useState(createStorefrontRequestTracker);
+  const loggedSearchesRef = useRef(new Map<string, number>());
   
   const { items } = useWishlist();
 
@@ -106,8 +109,9 @@ export default function Home() {
     try {
       let cardsQuery = supabase
         .from('cards')
-        .select('*')
+        .select('*', { count: 'exact' })
         .order('created_at', { ascending: false })
+        .neq('availability_status', 'archived')
         .range(from, to);
       if (activeCategory !== 'All') cardsQuery = cardsQuery.eq('group_name', activeCategory);
       const searchFilter = buildStorefrontSearchFilter(getStorefrontSearchTerms(normalizedSearch));
@@ -124,9 +128,10 @@ export default function Home() {
       );
       let data: StorefrontCardRow[] | null;
       let error: { message?: string } | null;
+      let count: number | null;
 
       try {
-        ({ data, error } = await cardsQuery.retry(false).abortSignal(controller.signal));
+        ({ data, error, count } = await cardsQuery.retry(false).abortSignal(controller.signal));
       } finally {
         window.clearTimeout(cardsTimeout);
       }
@@ -135,12 +140,13 @@ export default function Home() {
 
       if (error) throw new Error(error.message || 'Could not load the card collection.');
 
-      const cardsBatch = (data as StorefrontCardRow[] ?? []).map(card => ({
+      const cardsBatch: StorefrontCard[] = (data as StorefrontCardRow[] ?? []).map(card => ({
         ...card,
         price: Number.isFinite(Number(card.price)) ? Number(card.price) : 0,
         inventory_count: Number.isFinite(Number(card.inventory_count))
           ? Number(card.inventory_count)
           : 0,
+        availability_status: card.availability_status === 'pending' ? 'pending' : 'available',
         purchase_options: [],
       }));
       const optionsByCardId = new Map<string, PurchaseOption[]>();
@@ -210,6 +216,37 @@ export default function Home() {
       nextOffsetRef.current = offset + cardsBatch.length;
       setCards(currentCards => reset ? hydratedCards : mergeStorefrontPage(currentCards, hydratedCards));
       setHasMore(hasNextStorefrontPage(cardsBatch.length));
+
+      if (reset && normalizedSearch.length >= 2) {
+        const eventKey = `${normalizedSearch}:${activeCategory}`;
+        const lastLoggedAt = loggedSearchesRef.current.get(eventKey) ?? 0;
+        const now = Date.now();
+        if (now - lastLoggedAt >= 5 * 60_000) {
+          loggedSearchesRef.current.set(eventKey, now);
+          try {
+            const storageKey = 'kpop-card-search-session';
+            let anonymousSessionId = window.localStorage.getItem(storageKey);
+            if (!anonymousSessionId) {
+              anonymousSessionId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+                ? crypto.randomUUID()
+                : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+              window.localStorage.setItem(storageKey, anonymousSessionId);
+            }
+            void fetch('/api/analytics/search', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                query: normalizedSearch,
+                category: activeCategory === 'All' ? null : activeCategory,
+                result_count: Math.max(0, count ?? cardsBatch.length),
+                anonymous_session_id: anonymousSessionId,
+              }),
+            }).catch(() => undefined);
+          } catch {
+            // Analytics must never prevent a customer from browsing the collection.
+          }
+        }
+      }
     } catch (error) {
       const loadErrorMessage = getStorefrontLoadErrorMessage({
         isCurrent: requestTracker.isCurrent(requestId),
@@ -285,6 +322,7 @@ export default function Home() {
             .from('cards')
             .select('group_name')
             .order('group_name', { ascending: true })
+            .neq('availability_status', 'archived')
             .range(offset, offset + CATEGORY_PAGE_SIZE - 1)
             .retry(false)
             .abortSignal(controller.signal);

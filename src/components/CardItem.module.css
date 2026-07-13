@@ -52,6 +52,19 @@
   z-index: 2;
 }
 
+.pendingOverlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(91, 70, 33, 0.5);
+  color: #fff7df;
+  font-size: 0.8rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  z-index: 2;
+}
+
 .soldOutOverlay span {
   font-weight: 800;
   font-size: 1.2rem;

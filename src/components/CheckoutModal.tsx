@@ -7,7 +7,6 @@ import { supabase } from '@/lib/supabase';
 import WishlistReceipt from './WishlistReceipt';
 import { waitForImages } from './checkoutImageUtils';
 import {
-  buildWishlistItemInsertRows,
   formatCheckoutError,
 } from './checkoutUtils';
 import styles from './CheckoutModal.module.css';
@@ -58,42 +57,16 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
     }
     setLoading(true);
 
-    let createdWishlistId: string | null = null;
-    let shouldCleanupWishlist = false;
-
     try {
-      // 1. Log to Database
-      const { data: wishlistData, error: wishlistError } = await supabase
-        .from('wishlists')
-        .insert({
-          user_ig_handle: igHandle,
-          total_price: safeTotalPrice,
-          status: 'pending'
-        })
-        .select()
-        .single();
-
-      if (wishlistError) {
-        throw new Error(`Creating wishlist failed: ${formatCheckoutError(wishlistError)}`);
+      const orderResponse = await fetch('/api/wishlists', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_ig_handle: igHandle, items: safeItems }),
+      });
+      const orderData = await orderResponse.json().catch(() => null);
+      if (!orderResponse.ok || orderData?.error) {
+        throw new Error(orderData?.error || `Creating wishlist failed (status ${orderResponse.status}).`);
       }
-      if (!wishlistData?.id) {
-        throw new Error('Creating wishlist failed: the database did not return a wishlist id.');
-      }
-      const wishlistId = wishlistData.id;
-      createdWishlistId = wishlistId;
-
-      // 2. Log Items
-      shouldCleanupWishlist = true;
-      const wishlistItems = buildWishlistItemInsertRows(wishlistId, safeItems);
-
-      const { error: itemsError } = await supabase
-        .from('wishlist_items')
-        .insert(wishlistItems);
-
-      if (itemsError) {
-        throw new Error(`Saving wishlist items failed: ${formatCheckoutError(itemsError)}`);
-      }
-      shouldCleanupWishlist = false;
 
       // 3. Generate Image
       if (summaryRef.current) {
@@ -115,17 +88,6 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
         }
       }
     } catch (error: unknown) {
-      if (shouldCleanupWishlist && createdWishlistId) {
-        const { error: cleanupError } = await supabase
-          .from('wishlists')
-          .delete()
-          .eq('id', createdWishlistId);
-
-        if (cleanupError) {
-          console.error('Failed to clean up incomplete wishlist:', cleanupError);
-        }
-      }
-
       console.error('Checkout failed:', error);
       alert('Error processing request: ' + formatCheckoutError(error));
     } finally {
