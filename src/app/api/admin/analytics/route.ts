@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { authenticateAdminRequest } from '@/lib/server/supabaseAdmin';
+import {
+  authenticateAdminRequest,
+  createSupabaseAdminClient,
+} from '@/lib/server/supabaseAdmin';
 
 export const runtime = 'nodejs';
 
@@ -25,6 +28,48 @@ type AnalyticsWishlist = {
   total_price?: number | string | null;
   wishlist_items?: AnalyticsItem[] | null;
 };
+
+type SearchEvent = { normalized_query?: string | null; result_count?: number | null };
+
+const ANALYTICS_PAGE_SIZE = 1_000;
+
+async function loadSearchEvents(
+  supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>,
+  since: string,
+) {
+  const events: SearchEvent[] = [];
+  for (let offset = 0; ; offset += ANALYTICS_PAGE_SIZE) {
+    const { data, error } = await supabaseAdmin
+      .from('storefront_search_events')
+      .select('normalized_query, result_count')
+      .gte('created_at', since)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + ANALYTICS_PAGE_SIZE - 1);
+    if (error) throw error;
+    const page = (data ?? []) as SearchEvent[];
+    events.push(...page);
+    if (page.length < ANALYTICS_PAGE_SIZE) return events;
+  }
+}
+
+async function loadWishlists(
+  supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>,
+  since: string,
+) {
+  const wishlists: AnalyticsWishlist[] = [];
+  for (let offset = 0; ; offset += ANALYTICS_PAGE_SIZE) {
+    const { data, error } = await supabaseAdmin
+      .from('wishlists')
+      .select('id, status, total_price, wishlist_items(unit_price_snapshot, card_title_snapshot, group_name_snapshot, album_era_snapshot, cards(title, group_name, album_era))')
+      .gte('created_at', since)
+      .neq('status', 'cancelled')
+      .range(offset, offset + ANALYTICS_PAGE_SIZE - 1);
+    if (error) throw error;
+    const page = (data ?? []) as AnalyticsWishlist[];
+    wishlists.push(...page);
+    if (page.length < ANALYTICS_PAGE_SIZE) return wishlists;
+  }
+}
 
 function positiveMoney(value: unknown) {
   const numeric = Number(value);
@@ -69,24 +114,10 @@ export async function GET(request: NextRequest) {
     const days = rawDays === 7 || rawDays === 90 ? rawDays : 30;
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
-    const [searchResult, wishlistResult] = await Promise.all([
-      auth.supabaseAdmin
-        .from('storefront_search_events')
-        .select('normalized_query, result_count')
-        .gte('created_at', since)
-        .order('created_at', { ascending: false })
-        .range(0, 9_999),
-      auth.supabaseAdmin
-        .from('wishlists')
-        .select('id, status, total_price, wishlist_items(unit_price_snapshot, card_title_snapshot, group_name_snapshot, album_era_snapshot, cards(title, group_name, album_era))')
-        .gte('created_at', since)
-        .neq('status', 'cancelled')
-        .range(0, 9_999),
+    const [searchEvents, wishlists] = await Promise.all([
+      loadSearchEvents(auth.supabaseAdmin, since),
+      loadWishlists(auth.supabaseAdmin, since),
     ]);
-    if (searchResult.error) throw searchResult.error;
-    if (wishlistResult.error) throw wishlistResult.error;
-
-    const wishlists = (wishlistResult.data ?? []) as AnalyticsWishlist[];
     const allGroups = new Map<string, { count: number; revenue: number }>();
     const allAlbums = new Map<string, { count: number; revenue: number }>();
     const allCards = new Map<string, { count: number; revenue: number }>();
@@ -127,9 +158,9 @@ export async function GET(request: NextRequest) {
         completed_value: Math.round(completedRevenue * 100) / 100,
       },
       searches: {
-        total: searchResult.data?.length ?? 0,
-        top_queries: searchRanks(searchResult.data ?? [], false),
-        zero_result_queries: searchRanks(searchResult.data ?? [], true),
+        total: searchEvents.length,
+        top_queries: searchRanks(searchEvents, false),
+        zero_result_queries: searchRanks(searchEvents, true),
       },
       requests: {
         top_groups: ranks(allGroups),

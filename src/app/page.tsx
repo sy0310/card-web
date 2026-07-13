@@ -109,7 +109,7 @@ export default function Home() {
     try {
       let cardsQuery = supabase
         .from('cards')
-        .select('*', { count: 'exact' })
+        .select('*')
         .order('created_at', { ascending: false })
         .neq('availability_status', 'archived')
         .range(from, to);
@@ -128,10 +128,9 @@ export default function Home() {
       );
       let data: StorefrontCardRow[] | null;
       let error: { message?: string } | null;
-      let count: number | null;
 
       try {
-        ({ data, error, count } = await cardsQuery.retry(false).abortSignal(controller.signal));
+        ({ data, error } = await cardsQuery.retry(false).abortSignal(controller.signal));
       } finally {
         window.clearTimeout(cardsTimeout);
       }
@@ -229,7 +228,11 @@ export default function Home() {
             if (!anonymousSessionId) {
               anonymousSessionId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
                 ? crypto.randomUUID()
-                : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+                : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, character => {
+                  const random = Math.floor(Math.random() * 16);
+                  const value = character === 'x' ? random : (random & 0x3) | 0x8;
+                  return value.toString(16);
+                });
               window.localStorage.setItem(storageKey, anonymousSessionId);
             }
             void fetch('/api/analytics/search', {
@@ -238,7 +241,6 @@ export default function Home() {
               body: JSON.stringify({
                 query: normalizedSearch,
                 category: activeCategory === 'All' ? null : activeCategory,
-                result_count: Math.max(0, count ?? cardsBatch.length),
                 anonymous_session_id: anonymousSessionId,
               }),
             }).catch(() => undefined);

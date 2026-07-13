@@ -48,13 +48,32 @@ function isPersistentOptionId(value: string) {
   return value.length > 0 && !value.startsWith('fallback-');
 }
 
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+async function getExistingWishlist(
+  supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>,
+  checkoutRequestId: string,
+) {
+  const { data, error } = await supabaseAdmin
+    .from('wishlists')
+    .select('id, total_price')
+    .eq('checkout_request_id', checkoutRequestId)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => null) as {
       user_ig_handle?: unknown;
       items?: unknown;
+      checkout_request_id?: unknown;
     } | null;
     const handle = toText(body?.user_ig_handle);
+    const checkoutRequestId = toText(body?.checkout_request_id);
     const submittedItems = Array.isArray(body?.items) ? body.items as SubmittedItem[] : [];
 
     if (!handle || handle.length > 100) {
@@ -62,6 +81,9 @@ export async function POST(request: NextRequest) {
     }
     if (submittedItems.length === 0 || submittedItems.length > 100) {
       return NextResponse.json({ error: 'Your wishlist is empty or too large.' }, { status: 400 });
+    }
+    if (!isUuid(checkoutRequestId)) {
+      return NextResponse.json({ error: 'Invalid checkout request.' }, { status: 400 });
     }
 
     const normalizedItems = submittedItems.map(item => ({
@@ -74,6 +96,15 @@ export async function POST(request: NextRequest) {
     }
 
     const supabaseAdmin = createSupabaseAdminClient();
+    const existingWishlist = await getExistingWishlist(supabaseAdmin, checkoutRequestId);
+    if (existingWishlist) {
+      return NextResponse.json({
+        success: true,
+        reused: true,
+        wishlist_id: existingWishlist.id,
+        total_price: toMoney(existingWishlist.total_price),
+      });
+    }
     const cardIds = [...new Set(normalizedItems.map(item => item.cardId))];
     const { data: cardData, error: cardsError } = await supabaseAdmin
       .from('cards')
@@ -155,10 +186,28 @@ export async function POST(request: NextRequest) {
     ) * 100) / 100;
     const { data: wishlist, error: wishlistError } = await supabaseAdmin
       .from('wishlists')
-      .insert({ user_ig_handle: handle, total_price: totalPrice, status: 'pending' })
+      .insert({
+        user_ig_handle: handle,
+        total_price: totalPrice,
+        status: 'pending',
+        checkout_request_id: checkoutRequestId,
+      })
       .select('id')
       .single();
-    if (wishlistError || !wishlist?.id) throw wishlistError || new Error('Could not create wishlist.');
+    if (wishlistError || !wishlist?.id) {
+      if (wishlistError?.code === '23505') {
+        const concurrentWishlist = await getExistingWishlist(supabaseAdmin, checkoutRequestId);
+        if (concurrentWishlist) {
+          return NextResponse.json({
+            success: true,
+            reused: true,
+            wishlist_id: concurrentWishlist.id,
+            total_price: toMoney(concurrentWishlist.total_price),
+          });
+        }
+      }
+      throw wishlistError || new Error('Could not create wishlist.');
+    }
 
     const { error: itemsError } = await supabaseAdmin
       .from('wishlist_items')

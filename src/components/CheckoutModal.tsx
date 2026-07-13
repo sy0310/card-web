@@ -11,6 +11,40 @@ import {
 } from './checkoutUtils';
 import styles from './CheckoutModal.module.css';
 
+function createCheckoutRequestId() {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID();
+  }
+
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, character => {
+    const random = Math.floor(Math.random() * 16);
+    const value = character === 'x' ? random : (random & 0x3) | 0x8;
+    return value.toString(16);
+  });
+}
+
+function hashCheckoutFingerprint(value: string) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function getStoredCheckoutRequestId(fingerprint: string) {
+  const storageKey = `kpop-card-checkout-${hashCheckoutFingerprint(fingerprint)}`;
+  try {
+    const existingId = window.sessionStorage.getItem(storageKey);
+    if (existingId) return { id: existingId, storageKey };
+    const id = createCheckoutRequestId();
+    window.sessionStorage.setItem(storageKey, id);
+    return { id, storageKey };
+  } catch {
+    return { id: createCheckoutRequestId(), storageKey: '' };
+  }
+}
+
 export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) {
   const { items, totalPrice, clearWishlist } = useWishlist();
   const safeItems = Array.isArray(items) ? items : [];
@@ -26,6 +60,7 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
     wishlist_footer_note: 'Please DM this image to complete your purchase.'
   });
   const summaryRef = useRef<HTMLDivElement>(null);
+  const checkoutRequestRef = useRef<{ fingerprint: string; id: string; storageKey: string } | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -58,10 +93,29 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
     setLoading(true);
 
     try {
+      const fingerprint = JSON.stringify({
+        handle: igHandle.trim().toLowerCase(),
+        items: safeItems.map(item => ({
+          card_id: item.card_id,
+          purchase_option_id: item.purchase_option_id,
+          quantity: item.quantity,
+        })),
+      });
+      if (checkoutRequestRef.current?.fingerprint !== fingerprint) {
+        const request = getStoredCheckoutRequestId(fingerprint);
+        checkoutRequestRef.current = {
+          fingerprint,
+          ...request,
+        };
+      }
       const orderResponse = await fetch('/api/wishlists', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_ig_handle: igHandle, items: safeItems }),
+        body: JSON.stringify({
+          user_ig_handle: igHandle,
+          items: safeItems,
+          checkout_request_id: checkoutRequestRef.current.id,
+        }),
       });
       const orderData = await orderResponse.json().catch(() => null);
       if (!orderResponse.ok || orderData?.error) {
@@ -145,6 +199,10 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
                 Download Image
               </button>
               <button className={styles.secondaryBtn} onClick={() => {
+                if (checkoutRequestRef.current?.storageKey) {
+                  window.sessionStorage.removeItem(checkoutRequestRef.current.storageKey);
+                }
+                checkoutRequestRef.current = null;
                 clearWishlist();
                 onClose();
               }}>
