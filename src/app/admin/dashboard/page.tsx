@@ -6,7 +6,10 @@ import { toPng } from 'html-to-image';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import BulkUpload from '@/components/admin/BulkUpload';
-import WishlistReceipt, { type ReceiptLineItem } from '@/components/WishlistReceipt';
+import WishlistReceipt, {
+  type ReceiptLineItem,
+  type WishlistReceiptMode,
+} from '@/components/WishlistReceipt';
 import { waitForImages } from '@/components/checkoutImageUtils';
 import { fetchAdminJsonWithRetry, formatAdminFetchError } from '@/lib/client/adminFetch';
 import { getWishlistQuantityError, MAX_UNITS_PER_ITEM } from '@/lib/wishlistLimits';
@@ -172,6 +175,7 @@ export default function AdminDashboard() {
   const [generatingWishlistImage, setGeneratingWishlistImage] = useState(false);
   const [wishlistImagePreview, setWishlistImagePreview] = useState<string | null>(null);
   const [wishlistImageSignature, setWishlistImageSignature] = useState('');
+  const [wishlistImageMode, setWishlistImageMode] = useState<WishlistReceiptMode>('compact');
   const [showBulkEdit, setShowBulkEdit] = useState(false);
   const [bulkUpdating, setBulkUpdating] = useState(false);
   const [bulkEditDraft, setBulkEditDraft] = useState({
@@ -204,6 +208,7 @@ export default function AdminDashboard() {
   const [wishlistSearchTerm, setWishlistSearchTerm] = useState('');
   const [wishlistCardSearch, setWishlistCardSearch] = useState('');
   const wishlistReceiptRef = useRef<HTMLDivElement>(null);
+  const wishlistPackingReceiptRef = useRef<HTMLDivElement>(null);
 
   const cardsById = useMemo(() => new Map(cards.map(card => [card.id, card])), [cards]);
 
@@ -293,12 +298,15 @@ export default function AdminDashboard() {
 
       lineItems.push({
         id: item.key,
+        card_id: item.card_id,
+        purchase_option_id: item.purchase_option_id,
         title: item.card_title_snapshot || card?.title || 'Untitled card',
         price: Number(item.unit_price_snapshot ?? card?.price) || 0,
         unit_price: Number(item.unit_price_snapshot ?? card?.price) || 0,
         option_label: item.option_label_snapshot || 'Single',
         image_url: item.image_url_snapshot || card?.image_url || '',
-        group_name: item.group_name_snapshot || card?.group_name || card?.member_name || item.album_era_snapshot || card?.album_era || '',
+        group_name: item.group_name_snapshot || card?.group_name || card?.member_name || '',
+        album_era: item.album_era_snapshot || card?.album_era || '',
         quantity: parseWishlistQuantity(item.quantity),
       });
     }
@@ -312,10 +320,15 @@ export default function AdminDashboard() {
     const itemSignature = wishlistReceiptItems
       .map(item => [
         item.id,
+        item.card_id,
+        item.purchase_option_id,
         item.title,
         item.quantity,
         Number(item.price).toFixed(2),
         item.image_url,
+        item.group_name,
+        item.album_era,
+        item.option_label,
       ].join(':'))
       .join('|');
 
@@ -962,6 +975,7 @@ export default function AdminDashboard() {
     });
     setWishlistImagePreview(null);
     setWishlistImageSignature('');
+    setWishlistImageMode('compact');
     setWishlistCardSearch('');
     setStatusMessage('');
   };
@@ -973,6 +987,7 @@ export default function AdminDashboard() {
     setGeneratingWishlistImage(false);
     setWishlistImagePreview(null);
     setWishlistImageSignature('');
+    setWishlistImageMode('compact');
     setWishlistCardSearch('');
   };
 
@@ -1137,8 +1152,12 @@ export default function AdminDashboard() {
     await saveWishlistDraft();
   };
 
-  const generateWishlistImage = async ({ download = false }: { download?: boolean } = {}) => {
-    if (!wishlistReceiptRef.current || !wishlistDraft) return false;
+  const generateWishlistImage = async ({
+    download = false,
+    mode = 'compact',
+  }: { download?: boolean; mode?: WishlistReceiptMode } = {}) => {
+    const receiptRef = mode === 'packing' ? wishlistPackingReceiptRef : wishlistReceiptRef;
+    if (!receiptRef.current || !wishlistDraft || !editingWishlist) return false;
 
     const userHandle = wishlistDraft.user_ig_handle.trim();
     if (!userHandle) {
@@ -1162,12 +1181,12 @@ export default function AdminDashboard() {
     setStatusMessage('');
 
     try {
-      const imageReport = await waitForImages(wishlistReceiptRef.current);
+      const imageReport = await waitForImages(receiptRef.current);
       if (imageReport.failed > 0) {
         console.warn('Some admin receipt images failed to load before export:', imageReport);
       }
 
-      const dataUrl = await toPng(wishlistReceiptRef.current, {
+      const dataUrl = await toPng(receiptRef.current, {
         cacheBust: true,
         includeQueryParams: true,
         quality: 1,
@@ -1175,16 +1194,22 @@ export default function AdminDashboard() {
 
       setWishlistImagePreview(dataUrl);
       setWishlistImageSignature(wishlistReceiptSignature);
+      setWishlistImageMode(mode);
 
       if (download) {
-        const safeHandle = userHandle.replace(/[^a-z0-9_-]+/gi, '').replace(/^@/, '') || 'order';
+        const safeWishlistId = editingWishlist.id.replace(/[^a-z0-9_-]+/gi, '') || 'order';
         const link = document.createElement('a');
-        link.download = `wishlist-${safeHandle}-updated.png`;
+        link.download = mode === 'packing'
+          ? `wishlist-${safeWishlistId}-packing-list.png`
+          : `wishlist-${safeWishlistId}-receipt.png`;
         link.href = dataUrl;
         link.click();
       }
 
-      setStatusMessage(download ? 'New order image downloaded.' : 'New order image preview generated.');
+      const imageName = mode === 'packing' ? 'packing list' : 'customer receipt';
+      setStatusMessage(download
+        ? `${imageName[0].toUpperCase()}${imageName.slice(1)} downloaded.`
+        : `${imageName[0].toUpperCase()}${imageName.slice(1)} preview generated.`);
       return true;
     } catch (err: unknown) {
       const errMsg = formatAdminError(err);
@@ -1198,7 +1223,7 @@ export default function AdminDashboard() {
   const handleSaveWishlistAndGenerate = async () => {
     const saved = await saveWishlistDraft();
     if (saved) {
-      await generateWishlistImage({ download: true });
+      await generateWishlistImage({ download: true, mode: 'compact' });
     }
   };
 
@@ -1740,7 +1765,7 @@ export default function AdminDashboard() {
                 {wishlistImagePreview ? (
                   <img
                     src={wishlistImagePreview}
-                    alt="Updated wishlist receipt"
+                    alt={wishlistImageMode === 'packing' ? 'Packing list preview' : 'Customer receipt preview'}
                     className={`${styles.orderReceiptPreview} ${wishlistImageIsStale ? styles.staleOrderReceiptPreview : ''}`}
                   />
                 ) : (
@@ -1757,10 +1782,14 @@ export default function AdminDashboard() {
                   <button
                     type="button"
                     className={styles.secondaryBtn}
-                    onClick={() => void generateWishlistImage()}
+                    onClick={() => void generateWishlistImage({ mode: 'compact' })}
                     disabled={generatingWishlistImage}
                   >
-                    {generatingWishlistImage ? 'Generating...' : wishlistImagePreview ? 'Regenerate preview' : 'Generate preview'}
+                    {generatingWishlistImage
+                      ? 'Generating...'
+                      : wishlistImagePreview && wishlistImageMode === 'compact'
+                        ? 'Regenerate customer receipt preview'
+                        : 'Generate customer receipt preview'}
                   </button>
                 </div>
               </div>
@@ -1955,6 +1984,17 @@ export default function AdminDashboard() {
                   items={wishlistReceiptItems}
                   totalPrice={wishlistDraftTotal}
                   cacheKey={`${editingWishlist.id}-${wishlistDraft.items.length}-${wishlistDraftTotal}`}
+                  mode="compact"
+                />
+              </div>
+              <div ref={wishlistPackingReceiptRef}>
+                <WishlistReceipt
+                  settings={settings}
+                  userIgHandle={wishlistDraft.user_ig_handle}
+                  items={wishlistReceiptItems}
+                  totalPrice={wishlistDraftTotal}
+                  cacheKey={`${editingWishlist.id}-${wishlistDraft.items.length}-${wishlistDraftTotal}-packing`}
+                  mode="packing"
                 />
               </div>
             </div>
@@ -1976,7 +2016,15 @@ export default function AdminDashboard() {
                   onClick={() => void handleSaveWishlistAndGenerate()}
                   disabled={savingWishlist || generatingWishlistImage}
                 >
-                  {generatingWishlistImage ? 'Generating...' : 'Save & download image'}
+                  {generatingWishlistImage ? 'Generating...' : 'Download Customer Receipt'}
+                </button>
+                <button
+                  type="button"
+                  className={styles.secondaryBtn}
+                  onClick={() => void generateWishlistImage({ download: true, mode: 'packing' })}
+                  disabled={savingWishlist || generatingWishlistImage}
+                >
+                  {generatingWishlistImage ? 'Generating...' : 'Download Packing List'}
                 </button>
               </div>
             </div>

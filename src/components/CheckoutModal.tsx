@@ -162,7 +162,7 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
   const downloadImage = () => {
     if (!generatedImg) return;
     const link = document.createElement('a');
-    link.download = `wishlist-${igHandle}.png`;
+    link.download = `wishlist-${igHandle}-receipt.png`;
     link.href = generatedImg;
     link.click();
   };
@@ -194,7 +194,7 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
               onClick={handleGenerate}
               disabled={loading || !igHandle}
             >
-              {loading ? 'Processing...' : 'Generate Wishlist Image'}
+              {loading ? 'Processing...' : 'Generate Customer Receipt'}
             </button>
           </div>
         ) : (
@@ -206,7 +206,7 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
             
             <div className={styles.btnGroup}>
               <button className={styles.mainBtn} onClick={downloadImage}>
-                Download Image
+                Download Customer Receipt
               </button>
               <button className={styles.secondaryBtn} onClick={() => {
                 if (checkoutRequestRef.current?.storageKey) {
@@ -230,6 +230,7 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
               userIgHandle={igHandle}
               items={safeItems}
               totalPrice={safeTotalPrice}
+              mode="compact"
             />
           </div>
         </div>

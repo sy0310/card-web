@@ -101,6 +101,15 @@
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
 
+.summaryTemplatePacking {
+  border-color: #38bdf8;
+  background: #0c1520;
+}
+
+.summaryTemplatePacking .summaryHeader p {
+  color: #7dd3fc;
+}
+
 .summaryHeader {
   text-align: center;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
@@ -162,6 +171,13 @@
   border-radius: 12px;
 }
 
+.packingCheckbox {
+  flex: 0 0 auto;
+  color: #7dd3fc;
+  font-size: 25px;
+  line-height: 1;
+}
+
 .summaryThumb {
   width: 58px;
   height: 78px;
@@ -206,10 +222,59 @@
 
 .summaryItemPrice {
   margin-left: auto;
-  flex: 0 0 auto;
-  font-size: 16px;
-  font-weight: 700;
+  flex: 0 0 112px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  text-align: right;
   color: #ffffff;
+}
+
+.summaryItemUnitPrice {
+  color: #c9c5d8;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.summaryItemQuantity {
+  color: #ff9fca;
+  font-weight: 800;
+}
+
+.summaryItemLineTotal {
+  color: #ffffff;
+  font-size: 17px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.summaryPackingMeta {
+  margin-left: auto;
+  flex: 0 0 auto;
+  color: #7dd3fc;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1.3px;
+}
+
+.packingCopy {
+  color: #7dd3fc;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+}
+
+.summaryTemplatePacking .summaryItem {
+  gap: 13px;
+  padding: 12px 14px;
+  border-color: rgba(125, 211, 252, 0.16);
+}
+
+.summaryTemplatePacking .summaryItemInfo p {
+  color: #a8bfd1;
 }
 
 .summaryFooter {

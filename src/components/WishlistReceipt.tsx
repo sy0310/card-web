@@ -1,5 +1,11 @@
 import { buildReceiptImageSrc } from './checkoutImageUtils';
-import { expandReceiptLineItems } from './wishlistReceiptUtils';
+import {
+  calculateReceiptTotal,
+  compactReceiptLineItems,
+  expandReceiptLineItems,
+  getReceiptUnitPrice,
+  normalizeReceiptQuantity,
+} from './wishlistReceiptUtils';
 import styles from './CheckoutModal.module.css';
 
 export type ReceiptSettings = {
@@ -10,14 +16,21 @@ export type ReceiptSettings = {
 
 export type ReceiptLineItem = {
   id: string;
+  card_id?: string | null;
+  purchase_option_id?: string | null;
   title: string;
   price: number;
-  unit_price?: number;
-  option_label?: string;
-  image_url: string;
-  group_name?: string;
+  unit_price?: number | null;
+  option_label?: string | null;
+  image_url?: string | null;
+  group_name?: string | null;
+  album_era?: string | null;
   quantity: number;
+  copy_number?: number;
+  copy_count?: number;
 };
+
+export type WishlistReceiptMode = 'compact' | 'packing';
 
 type WishlistReceiptProps = {
   settings: ReceiptSettings;
@@ -25,7 +38,13 @@ type WishlistReceiptProps = {
   items: ReceiptLineItem[];
   totalPrice: number;
   cacheKey?: string | number;
+  mode?: WishlistReceiptMode;
 };
+
+function formatMoney(value: number) {
+  const cents = Math.round((Number.isFinite(value) ? value : 0) * 100);
+  return `$${(cents / 100).toFixed(2)}`;
+}
 
 export default function WishlistReceipt({
   settings,
@@ -33,15 +52,27 @@ export default function WishlistReceipt({
   items,
   totalPrice,
   cacheKey = 'receipt',
+  mode = 'compact',
 }: WishlistReceiptProps) {
-  const safeItems = expandReceiptLineItems(Array.isArray(items) ? items : []);
-  const safeTotalPrice = Number.isFinite(Number(totalPrice)) ? Number(totalPrice) : 0;
+  const sourceItems = Array.isArray(items) ? items : [];
+  const isPacking = mode === 'packing';
+  const displayItems = isPacking
+    ? expandReceiptLineItems(sourceItems)
+    : compactReceiptLineItems(sourceItems);
+  const renderedItemCount = displayItems.length;
+  const safeTotalPrice = Number.isFinite(Number(totalPrice))
+    ? Number(totalPrice)
+    : calculateReceiptTotal(sourceItems);
 
   return (
-    <div className={styles.summaryTemplate}>
+    <div
+      className={`${styles.summaryTemplate} ${isPacking ? styles.summaryTemplatePacking : ''}`}
+      data-mode={mode}
+      data-rendered-item-count={renderedItemCount}
+    >
       <div className={styles.summaryHeader}>
         <h1>{settings?.site_title || 'K-POP CARD'}</h1>
-        <p>WISHLIST REQUEST</p>
+        <p>{isPacking ? 'PACKING LIST' : 'CUSTOMER RECEIPT'}</p>
       </div>
 
       <div className={styles.summaryUser}>
@@ -50,18 +81,21 @@ export default function WishlistReceipt({
       </div>
 
       <div className={styles.summaryItems}>
-        {safeItems.map(item => {
+        {displayItems.map(item => {
           if (!item || !item.id) return null;
           const imageUrl = item.image_url || '';
           const title = item.title || 'Untitled';
           const groupName = item.group_name || '';
-          const quantity = Number.isFinite(Number(item.quantity)) ? Number(item.quantity) : 1;
-          const price = Number.isFinite(Number(item.unit_price))
-            ? Number(item.unit_price)
-            : Number.isFinite(Number(item.price)) ? Number(item.price) : 0;
+          const albumEra = item.album_era || '';
+          const quantity = normalizeReceiptQuantity(item.quantity);
+          const unitPrice = getReceiptUnitPrice(item);
           const optionLabel = item.option_label || '';
+          const itemMeta = [groupName, albumEra, optionLabel].filter(Boolean).join(' · ');
+          const copyNumber = item.copy_number || 1;
+          const copyCount = item.copy_count || 1;
           return (
             <div key={item.id} className={styles.summaryItem}>
+              {isPacking && <span className={styles.packingCheckbox} aria-hidden="true">□</span>}
               <div className={styles.summaryThumb}>
                 <img
                   src={buildReceiptImageSrc(imageUrl, `${cacheKey}-${item.id}-${quantity}`)}
@@ -72,11 +106,26 @@ export default function WishlistReceipt({
               </div>
               <div className={styles.summaryItemInfo}>
                 <h4>{title}</h4>
-                <p>{[groupName, optionLabel].filter(Boolean).join(' · ')}</p>
+                <p>{itemMeta}</p>
+                {isPacking && (
+                  <span className={styles.packingCopy}>Copy {copyNumber} of {copyCount}</span>
+                )}
               </div>
-              <div className={styles.summaryItemPrice}>
-                ${price.toFixed(2)}
-              </div>
+              {isPacking ? (
+                <div className={styles.summaryPackingMeta}>PICK</div>
+              ) : (
+                <div className={styles.summaryItemPrice}>
+                  <span className={styles.summaryItemUnitPrice}>
+                    {formatMoney(unitPrice)}
+                    {quantity > 1 && (
+                      <span className={styles.summaryItemQuantity}> × {quantity}</span>
+                    )}
+                  </span>
+                  <strong className={styles.summaryItemLineTotal}>
+                    {formatMoney(unitPrice * quantity)}
+                  </strong>
+                </div>
+              )}
             </div>
           );
         })}
@@ -84,8 +133,8 @@ export default function WishlistReceipt({
 
       <div className={styles.summaryFooter}>
         <div className={styles.summaryTotal}>
-          <span>TOTAL ESTIMATED</span>
-          <h2>${safeTotalPrice.toFixed(2)}</h2>
+          <span>{isPacking ? 'ORDER TOTAL' : 'TOTAL ESTIMATED'}</span>
+          <h2>{formatMoney(safeTotalPrice)}</h2>
         </div>
         <div className={styles.summaryNextStep}>
           <span>Next step</span>
