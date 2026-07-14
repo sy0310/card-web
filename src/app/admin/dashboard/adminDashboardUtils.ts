@@ -8,6 +8,7 @@ export type CardEditDraft = {
   album_era: string;
   rarity: string;
   inventory_count: string;
+  unlimited_inventory: boolean;
   original_ig_url: string;
   source: string;
   availability_status: string;
@@ -24,6 +25,7 @@ export type CardUpdatePayload = {
   album_era: string;
   rarity: string;
   inventory_count: number;
+  unlimited_inventory: boolean;
   original_ig_url: string;
   source: string;
   availability_status: CardAvailabilityStatus;
@@ -401,6 +403,7 @@ export function createCardDraft(card: Partial<CardUpdatePayload>): CardEditDraft
     album_era: trimValue(card.album_era),
     rarity: trimValue(card.rarity),
     inventory_count: trimValue(card.inventory_count),
+    unlimited_inventory: card.unlimited_inventory !== false,
     original_ig_url: trimValue(card.original_ig_url),
     source: trimValue(card.source || 'manual'),
     availability_status: normalizeCardAvailabilityStatus(card.availability_status),
@@ -431,6 +434,7 @@ export function buildCardUpdatePayload(draft: CardEditDraft): CardUpdatePayload 
     album_era: trimValue(draft.album_era),
     rarity: trimValue(draft.rarity),
     inventory_count: parseCount(draft.inventory_count),
+    unlimited_inventory: draft.unlimited_inventory !== false,
     original_ig_url: normalizeInstagramUrl(draft.original_ig_url),
     source: trimValue(draft.source || 'manual'),
     availability_status: normalizeCardAvailabilityStatus(draft.availability_status),

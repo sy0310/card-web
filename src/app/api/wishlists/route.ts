@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseAdminClient } from '@/lib/server/supabaseAdmin';
+import { hasEnoughInventory } from '@/lib/cardInventory';
 
 export const runtime = 'nodejs';
 
@@ -17,6 +18,7 @@ type CardRow = {
   group_name: string | null;
   album_era: string | null;
   inventory_count: number | string | null;
+  unlimited_inventory: boolean | null;
   availability_status: string | null;
 };
 
@@ -108,7 +110,7 @@ export async function POST(request: NextRequest) {
     const cardIds = [...new Set(normalizedItems.map(item => item.cardId))];
     const { data: cardData, error: cardsError } = await supabaseAdmin
       .from('cards')
-      .select('id, title, price, image_url, group_name, album_era, inventory_count, availability_status')
+      .select('id, title, price, image_url, group_name, album_era, inventory_count, unlimited_inventory, availability_status')
       .in('id', cardIds);
     if (cardsError) throw cardsError;
 
@@ -141,8 +143,7 @@ export async function POST(request: NextRequest) {
       }
 
       const nextCardQuantity = (quantitiesByCard.get(card.id) ?? 0) + item.quantity;
-      const stock = Math.max(0, Math.floor(Number(card.inventory_count) || 0));
-      if (stock <= 0 || nextCardQuantity > stock) {
+      if (!hasEnoughInventory(card, nextCardQuantity)) {
         return NextResponse.json({ error: `“${card.title || 'This card'}” no longer has enough stock.` }, { status: 409 });
       }
       quantitiesByCard.set(card.id, nextCardQuantity);

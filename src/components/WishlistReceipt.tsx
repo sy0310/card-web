@@ -1,4 +1,5 @@
 import { buildReceiptImageSrc } from './checkoutImageUtils';
+import { expandReceiptLineItems } from './wishlistReceiptUtils';
 import styles from './CheckoutModal.module.css';
 
 export type ReceiptSettings = {
@@ -33,7 +34,7 @@ export default function WishlistReceipt({
   totalPrice,
   cacheKey = 'receipt',
 }: WishlistReceiptProps) {
-  const safeItems = Array.isArray(items) ? items : [];
+  const safeItems = expandReceiptLineItems(Array.isArray(items) ? items : []);
   const safeTotalPrice = Number.isFinite(Number(totalPrice)) ? Number(totalPrice) : 0;
 
   return (
@@ -71,10 +72,10 @@ export default function WishlistReceipt({
               </div>
               <div className={styles.summaryItemInfo}>
                 <h4>{title}</h4>
-                <p>{[groupName, optionLabel].filter(Boolean).join(' · ')} {quantity > 1 ? ` (x${quantity})` : ''}</p>
+                <p>{[groupName, optionLabel].filter(Boolean).join(' · ')}</p>
               </div>
               <div className={styles.summaryItemPrice}>
-                ${(price * quantity).toFixed(2)}
+                ${price.toFixed(2)}
               </div>
             </div>
           );

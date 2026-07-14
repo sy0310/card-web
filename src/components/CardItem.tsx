@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useWishlist } from '@/context/WishlistContext';
+import { isCardSoldOut } from '@/lib/cardInventory';
 import {
   getActivePurchaseOptions,
   getDefaultPurchaseOption,
@@ -17,6 +18,7 @@ type CardProps = {
     image_url: string;
     group_name: string;
     inventory_count: number;
+    unlimited_inventory?: boolean | null;
     availability_status?: 'available' | 'pending' | 'archived';
     rarity?: string;
     pob_name?: string;
@@ -30,8 +32,7 @@ export default function CardItem({ card }: CardProps) {
 
   if (!card || !card.id) return null;
 
-  const inventoryCount = Number.isFinite(Number(card.inventory_count)) ? Number(card.inventory_count) : 0;
-  const isSoldOut = inventoryCount <= 0;
+  const isSoldOut = isCardSoldOut(card);
   const isPending = card.availability_status === 'pending';
   const isUnavailable = isSoldOut || isPending;
 

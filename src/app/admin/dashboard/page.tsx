@@ -178,10 +178,12 @@ export default function AdminDashboard() {
     album_era: '',
     price: '',
     inventory_count: '',
+    unlimited_inventory: true,
     update_group_name: false,
     update_album_era: false,
     update_price: false,
     update_inventory_count: false,
+    update_unlimited_inventory: false,
   });
   const [statusMessage, setStatusMessage] = useState('');
   const [instagramStatus, setInstagramStatus] = useState<InstagramSettingsStatusResponse['status'] | null>(null);
@@ -500,6 +502,7 @@ export default function AdminDashboard() {
   const inventoryStats = useMemo(() => {
     const lowStockThreshold = Number(normalizeAdminSettings(settings).low_stock_threshold);
     const totalValue = cards.reduce((sum, card) => {
+      if (card.unlimited_inventory !== false) return sum;
       const price = Number(card.price) || 0;
       const stock = Number(card.inventory_count) || 0;
       return sum + price * stock;
@@ -507,9 +510,10 @@ export default function AdminDashboard() {
 
     return {
       total: cards.length,
-      inStock: cards.filter(card => Number(card.inventory_count) > 0).length,
-      soldOut: cards.filter(card => Number(card.inventory_count) <= 0).length,
+      inStock: cards.filter(card => card.unlimited_inventory !== false || Number(card.inventory_count) > 0).length,
+      soldOut: cards.filter(card => card.unlimited_inventory === false && Number(card.inventory_count) <= 0).length,
       lowStock: cards.filter(card => {
+        if (card.unlimited_inventory !== false) return false;
         const stock = Number(card.inventory_count) || 0;
         return stock > 0 && stock <= lowStockThreshold;
       }).length,
@@ -1187,7 +1191,7 @@ export default function AdminDashboard() {
 
     const updatePayload: Partial<Pick<
       CardUpdatePayload,
-      'group_name' | 'album_era' | 'price' | 'inventory_count'
+      'group_name' | 'album_era' | 'price' | 'inventory_count' | 'unlimited_inventory'
     >> = {};
     if (bulkEditDraft.update_group_name) updatePayload.group_name = bulkEditDraft.group_name.trim();
     if (bulkEditDraft.update_album_era) updatePayload.album_era = bulkEditDraft.album_era.trim();
@@ -1198,6 +1202,9 @@ export default function AdminDashboard() {
     if (bulkEditDraft.update_inventory_count) {
       const parsedCount = parseInt(bulkEditDraft.inventory_count, 10);
       updatePayload.inventory_count = isNaN(parsedCount) ? 0 : parsedCount;
+    }
+    if (bulkEditDraft.update_unlimited_inventory) {
+      updatePayload.unlimited_inventory = bulkEditDraft.unlimited_inventory;
     }
 
     if (Object.keys(updatePayload).length === 0) {
@@ -1225,10 +1232,12 @@ export default function AdminDashboard() {
           album_era: '',
           price: '',
           inventory_count: '',
+          unlimited_inventory: true,
           update_group_name: false,
           update_album_era: false,
           update_price: false,
           update_inventory_count: false,
+          update_unlimited_inventory: false,
         });
         setSelectedIds([]);
       }
@@ -1355,7 +1364,23 @@ export default function AdminDashboard() {
                       />
                     </label>
                   </div>
-
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    <input
+                      type="checkbox"
+                      checked={bulkEditDraft.update_unlimited_inventory}
+                      onChange={(e) => setBulkEditDraft({ ...bulkEditDraft, update_unlimited_inventory: e.target.checked })}
+                      style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                    />
+                    <label className={styles.checkboxField} style={{ flex: 1, paddingTop: '0.5rem', paddingBottom: '0.5rem' }}>
+                      <input
+                        type="checkbox"
+                        checked={bulkEditDraft.unlimited_inventory}
+                        onChange={(e) => setBulkEditDraft({ ...bulkEditDraft, unlimited_inventory: e.target.checked })}
+                        disabled={!bulkEditDraft.update_unlimited_inventory}
+                      />
+                      <span>Unlimited inventory</span>
+                    </label>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1431,6 +1456,36 @@ export default function AdminDashboard() {
                     value={cardDraft.price}
                     onChange={event => handleCardDraftChange('price', event.target.value)}
                     required
+                  />
+                </label>
+                <label className={styles.checkboxField} style={{ padding: '0.5rem 0' }}>
+                  <input
+                    type="checkbox"
+                    checked={cardDraft.unlimited_inventory}
+                    onChange={event =>
+                      setCardDraft(current =>
+                        current
+                          ? {
+                              ...current,
+                              unlimited_inventory:
+                                event.target.checked,
+                            }
+                          : current
+                      )
+                    }
+                  />
+                  <span>Unlimited inventory</span>
+                </label>
+                <label className={styles.field}>
+                  <span>Inventory Count</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={cardDraft.inventory_count}
+                    onChange={event => handleCardDraftChange('inventory_count', event.target.value)}
+                    disabled={cardDraft.unlimited_inventory}
+                    required={!cardDraft.unlimited_inventory}
                   />
                 </label>
                 <label className={styles.field}>
@@ -2066,6 +2121,7 @@ export default function AdminDashboard() {
                         <th>Group</th>
                         <th>POB</th>
                         <th>Price</th>
+                        <th>Inventory</th>
                         <th>Options</th>
                         <th>Availability</th>
                         <th className={styles.actionsHeader}>Actions</th>
@@ -2102,6 +2158,7 @@ export default function AdminDashboard() {
                             <td>{card.group_name || '-'}</td>
                             <td>{card.pob_name || '-'}</td>
                             <td>${Number(card.price || 0).toFixed(2)}</td>
+                            <td>{card.unlimited_inventory !== false ? 'Unlimited' : (card.inventory_count || 0)}</td>
                             <td>
                               <div className={styles.inventoryOptionsList}>
                                 {inventoryPurchaseOptions.map((option, index) => (

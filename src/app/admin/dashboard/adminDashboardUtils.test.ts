@@ -21,6 +21,7 @@ import {
   normalizeInstagramUrl,
   normalizeAdminSettings,
   normalizeCardAvailabilityStatus,
+  createCardDraft,
 } from './adminDashboardUtils.ts';
 
 test('buildCardUpdatePayload trims text fields and coerces numeric values', () => {
@@ -34,6 +35,7 @@ test('buildCardUpdatePayload trims text fields and coerces numeric values', () =
     album_era: ' minisode ',
     rarity: ' Rare ',
     inventory_count: '-7',
+    unlimited_inventory: true,
     original_ig_url: ' ',
     source: ' instagram ',
     availability_status: ' pending ',
@@ -49,11 +51,20 @@ test('buildCardUpdatePayload trims text fields and coerces numeric values', () =
     album_era: 'minisode',
     rarity: 'Rare',
     inventory_count: 0,
+    unlimited_inventory: true,
     original_ig_url: '',
     source: 'instagram',
     availability_status: 'pending',
     pob_name: '',
   });
+});
+
+test('buildCardUpdatePayload and createCardDraft handle unlimited_inventory false', () => {
+  const draft = createCardDraft({ unlimited_inventory: false });
+  assert.equal(draft.unlimited_inventory, false);
+
+  const payload = buildCardUpdatePayload({ ...draft, title: 'Test', description: '', price: '0', image_url: '', group_name: '', member_name: '', album_era: '', rarity: '', inventory_count: '0', original_ig_url: '', source: '', availability_status: '' });
+  assert.equal(payload.unlimited_inventory, false);
 });
 
 test('getCardDraftErrors flags missing required card fields', () => {
@@ -68,6 +79,7 @@ test('getCardDraftErrors flags missing required card fields', () => {
       album_era: '',
       rarity: '',
       inventory_count: '2',
+      unlimited_inventory: true,
       original_ig_url: '',
       source: '',
       availability_status: '',

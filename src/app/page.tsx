@@ -30,6 +30,7 @@ type StorefrontCard = {
   image_url: string;
   group_name: string;
   inventory_count: number;
+  unlimited_inventory?: boolean | null;
   availability_status: 'available' | 'pending' | 'archived';
   rarity?: string;
   pob_name?: string;
@@ -39,6 +40,7 @@ type StorefrontCard = {
 type StorefrontCardRow = Omit<StorefrontCard, 'price' | 'inventory_count' | 'purchase_options' | 'availability_status'> & {
   price: number | string | null;
   inventory_count: number | string | null;
+  unlimited_inventory?: boolean | null;
   availability_status?: string | null;
 };
 
