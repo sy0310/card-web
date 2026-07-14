@@ -208,41 +208,16 @@
   table-layout: fixed;
 }
 
-.selectCol {
-  width: 48px;
-}
-
-.previewCol {
-  width: 120px;
-}
-
-.titleCol {
-  width: 34%;
-}
-
-.groupCol {
-  width: 150px;
-}
-
-.pobCol {
-  width: 170px;
-}
-
-.priceCol {
-  width: 120px;
-}
-
-.optionsCol {
-  width: 260px;
-}
-
-.actionsCol {
-  width: 180px;
-}
-
-.availabilityCol {
-  width: 132px;
-}
+.selectCol { width: 48px; }
+.previewCol { width: 64px; }
+.titleCol { width: minmax(200px, 1fr); }
+.groupCol { width: 140px; }
+.pobCol { width: 140px; }
+.priceCol { width: 100px; }
+.inventoryCol { width: 110px; }
+.optionsCol { width: 140px; }
+.availabilityCol { width: 130px; }
+.actionsCol { width: 64px; }
 
 .availabilityBadge {
   display: inline-flex;

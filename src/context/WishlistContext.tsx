@@ -2,6 +2,8 @@
 
 import { createContext, useContext, useState } from 'react';
 
+import { MAX_UNITS_PER_ITEM } from '@/lib/wishlistLimits';
+
 export type WishlistItem = {
   id: string;
   card_id: string;
@@ -35,13 +37,25 @@ export function WishlistProvider({ children }: { children: React.ReactNode }) {
 
   const clampQuantity = (item: Pick<WishlistItem, 'min_quantity' | 'max_quantity'>, quantity: number) => {
     const minQuantity = Math.max(1, Math.floor(Number(item.min_quantity) || 1));
+    const normalizedMinimum = Math.min(MAX_UNITS_PER_ITEM, minQuantity);
+
     const maxQuantity = item.max_quantity == null
       ? null
       : Math.max(minQuantity, Math.floor(Number(item.max_quantity) || minQuantity));
-    const requestedQuantity = Number.isFinite(Number(quantity)) ? Math.floor(quantity) : minQuantity;
-    const atLeastMinimum = Math.max(minQuantity, requestedQuantity);
+    
+    const optionMaximum = maxQuantity == null ? MAX_UNITS_PER_ITEM : maxQuantity;
+    
+    const effectiveMaximum = Math.max(
+      normalizedMinimum,
+      Math.min(MAX_UNITS_PER_ITEM, optionMaximum)
+    );
 
-    return maxQuantity == null ? atLeastMinimum : Math.min(maxQuantity, atLeastMinimum);
+    const requestedQuantity = Number.isFinite(Number(quantity)) ? Math.floor(quantity) : normalizedMinimum;
+    
+    return Math.max(
+      normalizedMinimum,
+      Math.min(effectiveMaximum, requestedQuantity)
+    );
   };
 
   const addToWishlist = (card: WishlistItemInput) => {

@@ -9,6 +9,7 @@ import { waitForImages } from './checkoutImageUtils';
 import {
   formatCheckoutError,
 } from './checkoutUtils';
+import { getWishlistQuantityError } from '@/lib/wishlistLimits';
 import styles from './CheckoutModal.module.css';
 
 function createCheckoutRequestId() {
@@ -90,6 +91,15 @@ export default function CheckoutModal({ isOpen, onClose }: { isOpen: boolean, on
       alert('Wishlist is empty');
       return;
     }
+    
+    const quantityError = getWishlistQuantityError(
+      safeItems.map(item => ({ quantity: Number(item.quantity) }))
+    );
+    if (quantityError) {
+      alert(quantityError);
+      return;
+    }
+    
     setLoading(true);
 
     try {

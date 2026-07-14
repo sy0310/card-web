@@ -9,6 +9,7 @@ import BulkUpload from '@/components/admin/BulkUpload';
 import WishlistReceipt, { type ReceiptLineItem } from '@/components/WishlistReceipt';
 import { waitForImages } from '@/components/checkoutImageUtils';
 import { fetchAdminJsonWithRetry, formatAdminFetchError } from '@/lib/client/adminFetch';
+import { getWishlistQuantityError, MAX_UNITS_PER_ITEM } from '@/lib/wishlistLimits';
 import styles from './page.module.css';
 import {
   type AdminSettings,
@@ -1049,6 +1050,14 @@ export default function AdminDashboard() {
       return false;
     }
 
+    const quantityError = getWishlistQuantityError(
+      validItems.map(item => ({ quantity: Number(item.quantity) }))
+    );
+    if (quantityError) {
+      setStatusMessage(quantityError);
+      return false;
+    }
+
     setSavingWishlist(true);
     setStatusMessage('');
 
@@ -1138,6 +1147,14 @@ export default function AdminDashboard() {
     }
     if (wishlistReceiptItems.length === 0) {
       setStatusMessage('Order needs at least one valid card before generating an image.');
+      return false;
+    }
+
+    const quantityError = getWishlistQuantityError(
+      wishlistDraft.items.map(item => ({ quantity: Number(item.quantity) }))
+    );
+    if (quantityError) {
+      setStatusMessage(`Cannot generate receipt: ${quantityError}`);
       return false;
     }
 
@@ -1907,6 +1924,7 @@ export default function AdminDashboard() {
                           <input
                             type="number"
                             min="1"
+                            max={MAX_UNITS_PER_ITEM}
                             step="1"
                             value={item.quantity}
                             onChange={event => updateWishlistDraftItem(item.key, { quantity: event.target.value })}
@@ -2097,6 +2115,7 @@ export default function AdminDashboard() {
                       <col className={styles.groupCol} />
                       <col className={styles.pobCol} />
                       <col className={styles.priceCol} />
+                      <col className={styles.inventoryCol} />
                       <col className={styles.optionsCol} />
                       <col className={styles.availabilityCol} />
                       <col className={styles.actionsCol} />

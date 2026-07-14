@@ -167,6 +167,47 @@ test('getPurchaseOptionDraftErrors flags max quantity below min quantity', () =>
   );
 });
 
+test('getPurchaseOptionDraftErrors flags quantities exceeding MAX_UNITS_PER_ITEM', () => {
+  assert.deepEqual(
+    getPurchaseOptionDraftErrors([
+      {
+        key: 'row-1',
+        label: 'High Min',
+        price: '20',
+        min_quantity: '101',
+        max_quantity: '',
+        is_default: true,
+        is_active: true,
+        sort_order: '0',
+      },
+      {
+        key: 'row-2',
+        label: 'High Max',
+        price: '20',
+        min_quantity: '1',
+        max_quantity: '101',
+        is_default: false,
+        is_active: true,
+        sort_order: '1',
+      },
+      {
+        key: 'row-3',
+        label: 'Max Exact',
+        price: '20',
+        min_quantity: '100',
+        max_quantity: '100',
+        is_default: false,
+        is_active: true,
+        sort_order: '2',
+      },
+    ]),
+    [
+      'Purchase option 1: min quantity cannot exceed 100.',
+      'Purchase option 2: max quantity cannot exceed 100.',
+    ],
+  );
+});
+
 test('buildPurchaseOptionPayloads emits numeric prices and nullable max quantities', () => {
   assert.deepEqual(
     buildPurchaseOptionPayloads('card-1', [

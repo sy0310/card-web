@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseAdminClient } from '@/lib/server/supabaseAdmin';
 import { hasEnoughInventory } from '@/lib/cardInventory';
+import { parseStrictWishlistQuantity, getWishlistQuantityError } from '@/lib/wishlistLimits';
+import { groupWishlistRequestItems, validateRequestedOptionQuantity, type NormalizedWishlistRequestItem } from './wishlistRequestUtils';
 
 export const runtime = 'nodejs';
 
@@ -34,11 +36,6 @@ type PurchaseOptionRow = {
 
 function toText(value: unknown) {
   return String(value ?? '').trim();
-}
-
-function toQuantity(value: unknown) {
-  const quantity = Math.floor(Number(value));
-  return Number.isFinite(quantity) ? Math.max(1, quantity) : 1;
 }
 
 function toMoney(value: unknown) {
@@ -88,13 +85,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid checkout request.' }, { status: 400 });
     }
 
-    const normalizedItems = submittedItems.map(item => ({
+    const parsedItems = submittedItems.map(item => ({
       cardId: toText(item.card_id),
       purchaseOptionId: toText(item.purchase_option_id),
-      quantity: toQuantity(item.quantity),
+      quantity: parseStrictWishlistQuantity(item.quantity),
     }));
-    if (normalizedItems.some(item => !item.cardId)) {
+    
+    if (parsedItems.some(item => item.quantity === null)) {
+      return NextResponse.json({ error: 'Each wishlist quantity must be a positive whole number.' }, { status: 400 });
+    }
+    
+    if (parsedItems.some(item => !item.cardId)) {
       return NextResponse.json({ error: 'One or more wishlist items are missing a card.' }, { status: 400 });
+    }
+
+    const groupedItems = groupWishlistRequestItems(parsedItems as NormalizedWishlistRequestItem[]);
+    
+    const quantityError = getWishlistQuantityError(groupedItems);
+    if (quantityError) {
+      return NextResponse.json({ error: quantityError }, { status: 400 });
     }
 
     const supabaseAdmin = createSupabaseAdminClient();
@@ -107,7 +116,7 @@ export async function POST(request: NextRequest) {
         total_price: toMoney(existingWishlist.total_price),
       });
     }
-    const cardIds = [...new Set(normalizedItems.map(item => item.cardId))];
+    const cardIds = [...new Set(groupedItems.map(item => item.cardId))];
     const { data: cardData, error: cardsError } = await supabaseAdmin
       .from('cards')
       .select('id, title, price, image_url, group_name, album_era, inventory_count, unlimited_inventory, availability_status')
@@ -119,7 +128,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'One or more selected cards are no longer available.' }, { status: 409 });
     }
 
-    const optionIds = [...new Set(normalizedItems
+    const optionIds = [...new Set(groupedItems
       .map(item => item.purchaseOptionId)
       .filter(isPersistentOptionId))];
     const optionsById = new Map<string, PurchaseOptionRow>();
@@ -136,7 +145,7 @@ export async function POST(request: NextRequest) {
 
     const quantitiesByCard = new Map<string, number>();
     const rows: Record<string, unknown>[] = [];
-    for (const item of normalizedItems) {
+    for (const item of groupedItems) {
       const card = cardsById.get(item.cardId)!;
       if (card.availability_status !== 'available') {
         return NextResponse.json({ error: `“${card.title || 'This card'}” is currently pending and cannot be added to a wishlist.` }, { status: 409 });
@@ -161,7 +170,8 @@ export async function POST(request: NextRequest) {
       const maxQuantity = option?.max_quantity == null
         ? null
         : Math.max(minQuantity, Math.floor(Number(option.max_quantity) || minQuantity));
-      if (item.quantity < minQuantity || (maxQuantity != null && item.quantity > maxQuantity)) {
+        
+      if (!validateRequestedOptionQuantity({ quantity: item.quantity, minQuantity, maxQuantity })) {
         return NextResponse.json({ error: `The requested quantity for “${card.title || 'this card'}” is no longer valid.` }, { status: 409 });
       }
 

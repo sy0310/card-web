@@ -4,6 +4,7 @@ import { useWishlist } from '@/context/WishlistContext';
 import styles from './WishlistDrawer.module.css';
 import { useState } from 'react';
 import CheckoutModal from './CheckoutModal';
+import { MAX_UNITS_PER_ITEM } from '@/lib/wishlistLimits';
 
 export default function WishlistDrawer({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) {
   const { items, removeFromWishlist, updateQuantity, totalPrice } = useWishlist();
@@ -45,6 +46,10 @@ export default function WishlistDrawer({ isOpen, onClose }: { isOpen: boolean, o
               const maxQuantity = item.max_quantity == null
                 ? null
                 : Math.max(minQuantity, Math.floor(Number(item.max_quantity) || minQuantity));
+              const effectiveMaxQuantity = Math.min(
+                MAX_UNITS_PER_ITEM,
+                maxQuantity ?? MAX_UNITS_PER_ITEM,
+              );
               const lineTotal = itemPrice * itemQuantity;
               return (
                 <div key={item.id} className={styles.item}>
@@ -67,7 +72,7 @@ export default function WishlistDrawer({ isOpen, onClose }: { isOpen: boolean, o
                         <span>{itemQuantity}</span>
                         <button
                           onClick={() => updateQuantity(item.id, itemQuantity + 1)}
-                          disabled={maxQuantity != null && itemQuantity >= maxQuantity}
+                          disabled={itemQuantity >= effectiveMaxQuantity}
                         >
                           +
                         </button>

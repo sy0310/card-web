@@ -1,3 +1,5 @@
+import { MAX_UNITS_PER_ITEM } from '@/lib/wishlistLimits';
+
 export type CardEditDraft = {
   title: string;
   description: string;
@@ -338,8 +340,14 @@ export function getPurchaseOptionDraftErrors(drafts: PurchaseOptionDraft[]) {
     if (!Number.isFinite(minQuantity) || minQuantity < 1) {
       errors.push(`${rowLabel}: min quantity must be at least 1.`);
     }
+    if (Number.isFinite(minQuantity) && minQuantity > MAX_UNITS_PER_ITEM) {
+      errors.push(`${rowLabel}: min quantity cannot exceed ${MAX_UNITS_PER_ITEM}.`);
+    }
     if (maxValue && (!Number.isFinite(maxQuantity) || maxQuantity < minQuantity)) {
       errors.push(`${rowLabel}: max quantity must be blank or greater than or equal to min quantity.`);
+    }
+    if (maxValue && Number.isFinite(maxQuantity) && maxQuantity > MAX_UNITS_PER_ITEM) {
+      errors.push(`${rowLabel}: max quantity cannot exceed ${MAX_UNITS_PER_ITEM}.`);
     }
   });
 
