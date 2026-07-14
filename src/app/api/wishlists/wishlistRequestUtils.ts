@@ -4,6 +4,22 @@ export type NormalizedWishlistRequestItem = {
   quantity: number;
 };
 
+export function normalizeRequestPurchaseOptionId(
+  value: unknown,
+) {
+  const normalized = String(value ?? '').trim();
+
+  if (
+    !normalized
+    || normalized.toLowerCase() === 'single'
+    || normalized.startsWith('fallback-')
+  ) {
+    return '';
+  }
+
+  return normalized;
+}
+
 export function groupWishlistRequestItems(
   items: NormalizedWishlistRequestItem[],
 ) {
@@ -13,7 +29,7 @@ export function groupWishlistRequestItems(
   >();
 
   for (const item of items) {
-    const key = `${item.cardId}:${item.purchaseOptionId || 'single'}`;
+    const key = `${item.cardId}:${item.purchaseOptionId}`;
 
     const existing = grouped.get(key);
 

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseAdminClient } from '@/lib/server/supabaseAdmin';
 import { hasEnoughInventory } from '@/lib/cardInventory';
 import { parseStrictWishlistQuantity, getWishlistQuantityError } from '@/lib/wishlistLimits';
-import { groupWishlistRequestItems, validateRequestedOptionQuantity, type NormalizedWishlistRequestItem } from './wishlistRequestUtils';
+import { groupWishlistRequestItems, validateRequestedOptionQuantity, normalizeRequestPurchaseOptionId, type NormalizedWishlistRequestItem } from './wishlistRequestUtils';
 
 export const runtime = 'nodejs';
 
@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
 
     const parsedItems = submittedItems.map(item => ({
       cardId: toText(item.card_id),
-      purchaseOptionId: toText(item.purchase_option_id),
+      purchaseOptionId: normalizeRequestPurchaseOptionId(item.purchase_option_id),
       quantity: parseStrictWishlistQuantity(item.quantity),
     }));
     

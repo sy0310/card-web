@@ -210,14 +210,14 @@
 
 .selectCol { width: 48px; }
 .previewCol { width: 64px; }
-.titleCol { width: minmax(200px, 1fr); }
+.titleCol { width: auto; min-width: 200px; }
 .groupCol { width: 140px; }
 .pobCol { width: 140px; }
 .priceCol { width: 100px; }
 .inventoryCol { width: 110px; }
 .optionsCol { width: 140px; }
 .availabilityCol { width: 130px; }
-.actionsCol { width: 64px; }
+.actionsCol { width: 180px; }
 
 .availabilityBadge {
   display: inline-flex;

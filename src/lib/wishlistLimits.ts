@@ -1,7 +1,23 @@
 export const MAX_UNITS_PER_ITEM = 100;
 export const MAX_TOTAL_UNITS = 100;
 
-export function parseStrictWishlistQuantity(value: unknown) {
+export function parseStrictWishlistQuantity(
+  value: unknown,
+) {
+  if (
+    typeof value !== 'number'
+    && typeof value !== 'string'
+  ) {
+    return null;
+  }
+
+  if (
+    typeof value === 'string'
+    && !/^[1-9]\d*$/.test(value.trim())
+  ) {
+    return null;
+  }
+
   const quantity = Number(value);
 
   if (

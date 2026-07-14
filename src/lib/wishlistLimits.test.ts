@@ -11,18 +11,28 @@ import {
 test('parseStrictWishlistQuantity parses valid quantities', () => {
   assert.equal(parseStrictWishlistQuantity(1), 1);
   assert.equal(parseStrictWishlistQuantity(100), 100);
-  assert.equal(parseStrictWishlistQuantity('10'), 10);
+  assert.equal(parseStrictWishlistQuantity('1'), 1);
+  assert.equal(parseStrictWishlistQuantity('100'), 100);
 });
 
 test('parseStrictWishlistQuantity rejects invalid quantities', () => {
-  assert.equal(parseStrictWishlistQuantity(0), null);
-  assert.equal(parseStrictWishlistQuantity(-1), null);
-  assert.equal(parseStrictWishlistQuantity(1.5), null);
-  assert.equal(parseStrictWishlistQuantity('1.5'), null);
-  assert.equal(parseStrictWishlistQuantity(NaN), null);
-  assert.equal(parseStrictWishlistQuantity('abc'), null);
+  assert.equal(parseStrictWishlistQuantity(true), null);
+  assert.equal(parseStrictWishlistQuantity(false), null);
   assert.equal(parseStrictWishlistQuantity(null), null);
   assert.equal(parseStrictWishlistQuantity(undefined), null);
+  assert.equal(parseStrictWishlistQuantity([]), null);
+  assert.equal(parseStrictWishlistQuantity([1]), null);
+  assert.equal(parseStrictWishlistQuantity({}), null);
+  assert.equal(parseStrictWishlistQuantity(''), null);
+  assert.equal(parseStrictWishlistQuantity(' '), null);
+  assert.equal(parseStrictWishlistQuantity('1.5'), null);
+  assert.equal(parseStrictWishlistQuantity('01'), null);
+  assert.equal(parseStrictWishlistQuantity('+1'), null);
+  assert.equal(parseStrictWishlistQuantity('-1'), null);
+  assert.equal(parseStrictWishlistQuantity(0), null);
+  assert.equal(parseStrictWishlistQuantity(1.5), null);
+  assert.equal(parseStrictWishlistQuantity(NaN), null);
+  assert.equal(parseStrictWishlistQuantity(Infinity), null);
 });
 
 test('getWishlistTotalUnits calculates correct total', () => {
