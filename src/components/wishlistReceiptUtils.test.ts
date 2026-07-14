@@ -4,6 +4,7 @@ import {
   calculateReceiptTotal,
   compactReceiptLineItems,
   expandReceiptLineItems,
+  getReceiptImageCacheKey,
 } from './wishlistReceiptUtils.ts';
 import type { ReceiptLineItem } from './WishlistReceipt.tsx';
 
@@ -42,6 +43,52 @@ test('wishlistReceiptUtils: packing expands quantity 2 into unique copies', () =
   assert.equal(expanded[1].id, 'item-2:unit-2');
   assert.deepEqual(expanded.map(line => line.quantity), [1, 1]);
   assert.deepEqual(expanded.map(line => line.copy_number), [1, 2]);
+});
+
+test('wishlistReceiptUtils: expanded copies share one image cache key', () => {
+  const expanded = expandReceiptLineItems([item({ quantity: 2 })]);
+
+  assert.equal(
+    getReceiptImageCacheKey(expanded[0], 'receipt-1', 'packing'),
+    getReceiptImageCacheKey(expanded[1], 'receipt-1', 'packing'),
+  );
+});
+
+test('wishlistReceiptUtils: copy number and expanded id do not affect image cache key', () => {
+  const first = item({ id: 'line-a', quantity: 1 });
+  const second = item({ id: 'line-b', quantity: 1, copy_number: 2, copy_count: 2 });
+
+  assert.equal(
+    getReceiptImageCacheKey(first, 'receipt-1', 'packing'),
+    getReceiptImageCacheKey(second, 'receipt-1', 'packing'),
+  );
+});
+
+test('wishlistReceiptUtils: different card ids use different image cache keys', () => {
+  assert.notEqual(
+    getReceiptImageCacheKey(item({ card_id: 'card-a' }), 'receipt-1', 'packing'),
+    getReceiptImageCacheKey(item({ card_id: 'card-b' }), 'receipt-1', 'packing'),
+  );
+});
+
+test('wishlistReceiptUtils: missing card id falls back to image url identity', () => {
+  assert.equal(
+    getReceiptImageCacheKey(item({ id: 'copy-a', card_id: null }), 'receipt-1', 'packing'),
+    getReceiptImageCacheKey(item({ id: 'copy-b', card_id: null }), 'receipt-1', 'packing'),
+  );
+  assert.notEqual(
+    getReceiptImageCacheKey(item({ card_id: null, image_url: 'image-a' }), 'receipt-1', 'packing'),
+    getReceiptImageCacheKey(item({ card_id: null, image_url: 'image-b' }), 'receipt-1', 'packing'),
+  );
+});
+
+test('wishlistReceiptUtils: compact and packing use different image cache modes', () => {
+  const line = item();
+
+  assert.notEqual(
+    getReceiptImageCacheKey(line, 'receipt-1', 'compact'),
+    getReceiptImageCacheKey(line, 'receipt-1', 'packing'),
+  );
 });
 
 test('wishlistReceiptUtils: expanded items preserve snapshots', () => {

@@ -149,6 +149,32 @@ function getPersistentPurchaseOptionId(optionId?: string | null) {
   return optionId && !optionId.startsWith('fallback-') ? optionId : null;
 }
 
+function hashReceiptSignature(value: string) {
+  let hash = 2166136261;
+
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  return (hash >>> 0).toString(36);
+}
+
+function waitForReceiptRender() {
+  return new Promise<void>(resolve => {
+    if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+      resolve();
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        resolve();
+      });
+    });
+  });
+}
+
 export default function AdminDashboard() {
   const [session, setSession] = useState<Session | null>(null);
   const [showUpload, setShowUpload] = useState(false);
@@ -176,6 +202,7 @@ export default function AdminDashboard() {
   const [wishlistImagePreview, setWishlistImagePreview] = useState<string | null>(null);
   const [wishlistImageSignature, setWishlistImageSignature] = useState('');
   const [wishlistImageMode, setWishlistImageMode] = useState<WishlistReceiptMode>('compact');
+  const [wishlistRenderMode, setWishlistRenderMode] = useState<WishlistReceiptMode>('compact');
   const [showBulkEdit, setShowBulkEdit] = useState(false);
   const [bulkUpdating, setBulkUpdating] = useState(false);
   const [bulkEditDraft, setBulkEditDraft] = useState({
@@ -208,7 +235,6 @@ export default function AdminDashboard() {
   const [wishlistSearchTerm, setWishlistSearchTerm] = useState('');
   const [wishlistCardSearch, setWishlistCardSearch] = useState('');
   const wishlistReceiptRef = useRef<HTMLDivElement>(null);
-  const wishlistPackingReceiptRef = useRef<HTMLDivElement>(null);
 
   const cardsById = useMemo(() => new Map(cards.map(card => [card.id, card])), [cards]);
 
@@ -348,6 +374,10 @@ export default function AdminDashboard() {
     wishlistDraftTotal,
     wishlistReceiptItems,
   ]);
+  const wishlistReceiptCacheKey = useMemo(
+    () => hashReceiptSignature(wishlistReceiptSignature),
+    [wishlistReceiptSignature],
+  );
   const wishlistImageIsStale = Boolean(
     wishlistImagePreview && wishlistImageSignature !== wishlistReceiptSignature,
   );
@@ -976,6 +1006,7 @@ export default function AdminDashboard() {
     setWishlistImagePreview(null);
     setWishlistImageSignature('');
     setWishlistImageMode('compact');
+    setWishlistRenderMode('compact');
     setWishlistCardSearch('');
     setStatusMessage('');
   };
@@ -988,6 +1019,7 @@ export default function AdminDashboard() {
     setWishlistImagePreview(null);
     setWishlistImageSignature('');
     setWishlistImageMode('compact');
+    setWishlistRenderMode('compact');
     setWishlistCardSearch('');
   };
 
@@ -1156,8 +1188,7 @@ export default function AdminDashboard() {
     download = false,
     mode = 'compact',
   }: { download?: boolean; mode?: WishlistReceiptMode } = {}) => {
-    const receiptRef = mode === 'packing' ? wishlistPackingReceiptRef : wishlistReceiptRef;
-    if (!receiptRef.current || !wishlistDraft || !editingWishlist) return false;
+    if (!wishlistDraft || !editingWishlist) return false;
 
     const userHandle = wishlistDraft.user_ig_handle.trim();
     if (!userHandle) {
@@ -1181,12 +1212,20 @@ export default function AdminDashboard() {
     setStatusMessage('');
 
     try {
-      const imageReport = await waitForImages(receiptRef.current);
+      setWishlistRenderMode(mode);
+      await waitForReceiptRender();
+
+      const receiptElement = wishlistReceiptRef.current;
+      if (!receiptElement) {
+        throw new Error('Receipt renderer is unavailable.');
+      }
+
+      const imageReport = await waitForImages(receiptElement);
       if (imageReport.failed > 0) {
         console.warn('Some admin receipt images failed to load before export:', imageReport);
       }
 
-      const dataUrl = await toPng(receiptRef.current, {
+      const dataUrl = await toPng(receiptElement, {
         cacheBust: true,
         includeQueryParams: true,
         quality: 1,
@@ -1217,13 +1256,14 @@ export default function AdminDashboard() {
       return false;
     } finally {
       setGeneratingWishlistImage(false);
+      setWishlistRenderMode('compact');
     }
   };
 
-  const handleSaveWishlistAndGenerate = async () => {
+  const handleSaveWishlistAndGenerate = async (mode: WishlistReceiptMode) => {
     const saved = await saveWishlistDraft();
     if (saved) {
-      await generateWishlistImage({ download: true, mode: 'compact' });
+      await generateWishlistImage({ download: true, mode });
     }
   };
 
@@ -1979,22 +2019,13 @@ export default function AdminDashboard() {
             <div className={styles.hiddenReceipt}>
               <div ref={wishlistReceiptRef}>
                 <WishlistReceipt
+                  key={`${editingWishlist.id}-${wishlistRenderMode}`}
                   settings={settings}
                   userIgHandle={wishlistDraft.user_ig_handle}
                   items={wishlistReceiptItems}
                   totalPrice={wishlistDraftTotal}
-                  cacheKey={`${editingWishlist.id}-${wishlistDraft.items.length}-${wishlistDraftTotal}`}
-                  mode="compact"
-                />
-              </div>
-              <div ref={wishlistPackingReceiptRef}>
-                <WishlistReceipt
-                  settings={settings}
-                  userIgHandle={wishlistDraft.user_ig_handle}
-                  items={wishlistReceiptItems}
-                  totalPrice={wishlistDraftTotal}
-                  cacheKey={`${editingWishlist.id}-${wishlistDraft.items.length}-${wishlistDraftTotal}-packing`}
-                  mode="packing"
+                  cacheKey={`${editingWishlist.id}-${wishlistReceiptCacheKey}`}
+                  mode={wishlistRenderMode}
                 />
               </div>
             </div>
@@ -2013,18 +2044,18 @@ export default function AdminDashboard() {
                 <button
                   type="button"
                   className={styles.addBtn}
-                  onClick={() => void handleSaveWishlistAndGenerate()}
+                  onClick={() => void handleSaveWishlistAndGenerate('compact')}
                   disabled={savingWishlist || generatingWishlistImage}
                 >
-                  {generatingWishlistImage ? 'Generating...' : 'Download Customer Receipt'}
+                  {generatingWishlistImage ? 'Generating...' : 'Save & Download Customer Receipt'}
                 </button>
                 <button
                   type="button"
                   className={styles.secondaryBtn}
-                  onClick={() => void generateWishlistImage({ download: true, mode: 'packing' })}
+                  onClick={() => void handleSaveWishlistAndGenerate('packing')}
                   disabled={savingWishlist || generatingWishlistImage}
                 >
-                  {generatingWishlistImage ? 'Generating...' : 'Download Packing List'}
+                  {generatingWishlistImage ? 'Generating...' : 'Save & Download Packing List'}
                 </button>
               </div>
             </div>

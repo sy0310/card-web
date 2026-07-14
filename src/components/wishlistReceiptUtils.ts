@@ -1,4 +1,7 @@
-import type { ReceiptLineItem } from './WishlistReceipt';
+import type {
+  ReceiptLineItem,
+  WishlistReceiptMode,
+} from './WishlistReceipt';
 import { MAX_TOTAL_UNITS, MAX_UNITS_PER_ITEM } from '@/lib/wishlistLimits';
 
 export function normalizeReceiptQuantity(value: unknown) {
@@ -20,6 +23,19 @@ export function getReceiptUnitPrice(item: Pick<ReceiptLineItem, 'price' | 'unit_
 
   const price = Number(item.price);
   return Number.isFinite(price) ? price : 0;
+}
+
+export function getReceiptImageCacheKey(
+  item: ReceiptLineItem,
+  cacheKey: string | number,
+  mode: WishlistReceiptMode,
+) {
+  const imageCacheIdentity = item.card_id
+    || item.image_url
+    || item.title
+    || 'receipt-item';
+
+  return `${cacheKey}-${mode}-${imageCacheIdentity}`;
 }
 
 function getReceiptPriceCents(value: number) {

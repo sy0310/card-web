@@ -3,6 +3,7 @@ import {
   calculateReceiptTotal,
   compactReceiptLineItems,
   expandReceiptLineItems,
+  getReceiptImageCacheKey,
   getReceiptUnitPrice,
   normalizeReceiptQuantity,
 } from './wishlistReceiptUtils';
@@ -98,7 +99,10 @@ export default function WishlistReceipt({
               {isPacking && <span className={styles.packingCheckbox} aria-hidden="true">□</span>}
               <div className={styles.summaryThumb}>
                 <img
-                  src={buildReceiptImageSrc(imageUrl, `${cacheKey}-${item.id}-${quantity}`)}
+                  src={buildReceiptImageSrc(
+                    imageUrl,
+                    getReceiptImageCacheKey(item, cacheKey, mode),
+                  )}
                   alt={title}
                   loading="eager"
                   decoding="sync"
