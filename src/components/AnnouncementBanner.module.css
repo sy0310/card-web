@@ -1,0 +1,39 @@
+.banner {
+  width: 100%;
+  overflow: hidden;
+  background: var(--foreground);
+  color: white;
+  padding: 0.55rem 0;
+  white-space: nowrap;
+}
+
+.track {
+  display: inline-block;
+  min-width: max-content;
+  padding-left: 100%;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  animation: announcement-scroll 18s linear infinite;
+}
+
+@keyframes announcement-scroll {
+  to {
+    transform: translateX(-100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .banner {
+    overflow: visible;
+    white-space: normal;
+    text-align: center;
+  }
+
+  .track {
+    display: block;
+    min-width: 0;
+    padding: 0 1rem;
+    animation: none;
+  }
+}

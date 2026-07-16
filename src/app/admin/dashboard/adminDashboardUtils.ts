@@ -46,6 +46,7 @@ export type PurchaseOptionDraft = {
   is_default: boolean;
   is_active: boolean;
   sort_order: string;
+  status?: 'available' | 'sold_out';
 };
 
 export type PurchaseOptionPayload = {
@@ -58,6 +59,7 @@ export type PurchaseOptionPayload = {
   is_default: boolean;
   is_active: boolean;
   sort_order: number;
+  status?: 'available' | 'sold_out';
 };
 
 export type AdminSettings = {
@@ -66,6 +68,8 @@ export type AdminSettings = {
   checkout_intro: string;
   wishlist_footer_note: string;
   low_stock_threshold: string;
+  banner_enabled: boolean;
+  banner_text: string;
 };
 
 export type WishlistDraftItem = {
@@ -122,6 +126,8 @@ export const defaultAdminSettings: AdminSettings = {
   checkout_intro: 'Enter your Instagram handle so we can track your request.',
   wishlist_footer_note: 'Please DM this image to complete your purchase.',
   low_stock_threshold: '2',
+  banner_enabled: true,
+  banner_text: 'IG @meguro_abebe pls check carrd go rules before DM !!',
 };
 
 const settingKeys: (keyof AdminSettings)[] = [
@@ -130,6 +136,8 @@ const settingKeys: (keyof AdminSettings)[] = [
   'checkout_intro',
   'wishlist_footer_note',
   'low_stock_threshold',
+  'banner_enabled',
+  'banner_text',
 ];
 
 const trimValue = (value: unknown) => String(value ?? '').trim();
@@ -155,6 +163,7 @@ const createFallbackAdminPurchaseOption = (card: AdminPurchaseOptionCard): Purch
   is_default: true,
   is_active: true,
   sort_order: 0,
+  status: 'available',
 });
 
 const sortAdminPurchaseOptions = (options: PurchaseOptionPayload[]) => [...options].sort((a, b) => {
@@ -265,6 +274,7 @@ export function createPurchaseOptionDrafts(
         is_default: true,
         is_active: true,
         sort_order: '0',
+        status: 'available',
       },
     ], fallbackPrice);
   }
@@ -286,6 +296,7 @@ export function createPurchaseOptionDrafts(
       is_default: Boolean(option.is_default),
       is_active: option.is_active !== false,
       sort_order: trimValue(option.sort_order ?? index),
+      status: option.status === 'sold_out' ? 'sold_out' : 'available',
     })),
     fallbackPrice,
   );
@@ -307,6 +318,7 @@ export function normalizePurchaseOptionDrafts(
         sort_order: String(parseSortOrder(draft.sort_order, index)),
         is_default: Boolean(draft.is_default),
         is_active: Boolean(draft.is_active),
+        status: draft.status === 'sold_out' ? 'sold_out' as const : 'available' as const,
       }))
     : createPurchaseOptionDrafts([], fallbackPrice);
 
@@ -372,6 +384,7 @@ export function buildPurchaseOptionPayloads(
       is_default: draft.is_default,
       is_active: draft.is_active,
       sort_order: index,
+      status: draft.status === 'sold_out' ? 'sold_out' : 'available',
     };
   });
 }
@@ -468,6 +481,7 @@ export function normalizeAdminSettings(settings: Partial<AdminSettings>): AdminS
   const wishlistFooter = trimValue(settings.wishlist_footer_note)
     || defaultAdminSettings.wishlist_footer_note;
   const threshold = Number(settings.low_stock_threshold);
+  const bannerText = trimValue(settings.banner_text) || defaultAdminSettings.banner_text;
 
   return {
     site_title: siteTitle,
@@ -477,12 +491,15 @@ export function normalizeAdminSettings(settings: Partial<AdminSettings>): AdminS
     low_stock_threshold: String(
       Number.isFinite(threshold) ? Math.max(0, Math.floor(threshold)) : 2,
     ),
+    banner_enabled: settings.banner_enabled !== false
+      && String(settings.banner_enabled).trim().toLowerCase() !== 'false',
+    banner_text: bannerText,
   };
 }
 
 export function buildSettingsRows(settings: Partial<AdminSettings>) {
   const normalized = normalizeAdminSettings(settings);
-  return settingKeys.map(key => ({ key, value: normalized[key] }));
+  return settingKeys.map(key => ({ key, value: String(normalized[key]) }));
 }
 
 export function parseWishlistQuantity(value: string) {

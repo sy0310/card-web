@@ -120,6 +120,7 @@ test('createPurchaseOptionDrafts creates a default Single option when none exist
   assert.equal(drafts[0].is_default, true);
   assert.equal(drafts[0].is_active, true);
   assert.equal(drafts[0].sort_order, '0');
+  assert.equal(drafts[0].status, 'available');
 });
 
 test('normalizePurchaseOptionDrafts keeps only the first default option', () => {
@@ -244,6 +245,7 @@ test('buildPurchaseOptionPayloads emits numeric prices and nullable max quantiti
         is_default: true,
         is_active: true,
         sort_order: 0,
+        status: 'available',
       },
       {
         id: undefined,
@@ -255,6 +257,7 @@ test('buildPurchaseOptionPayloads emits numeric prices and nullable max quantiti
         is_default: false,
         is_active: false,
         sort_order: 1,
+        status: 'available',
       },
     ],
   );
@@ -369,6 +372,8 @@ test('normalizeAdminSettings keeps settings usable for storefront copy', () => {
       checkout_intro: 'DM us after downloading.',
       wishlist_footer_note: 'Please DM this image to complete your purchase.',
       low_stock_threshold: '4',
+      banner_enabled: true,
+      banner_text: 'IG @meguro_abebe pls check carrd go rules before DM !!',
     },
   );
 });
@@ -388,6 +393,8 @@ test('buildSettingsRows returns normalized key-value rows for upsert', () => {
       { key: 'checkout_intro', value: 'Download then DM.' },
       { key: 'wishlist_footer_note', value: 'Thanks for shopping.' },
       { key: 'low_stock_threshold', value: '3' },
+      { key: 'banner_enabled', value: 'true' },
+      { key: 'banner_text', value: 'IG @meguro_abebe pls check carrd go rules before DM !!' },
     ],
   );
 });

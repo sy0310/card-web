@@ -169,7 +169,7 @@ export default function Home() {
         try {
           ({ data: optionsData, error: optionsError } = await supabase
             .from('card_purchase_options')
-            .select('id, card_id, label, price, min_quantity, max_quantity, is_default, is_active, sort_order')
+            .select('id, card_id, label, price, min_quantity, max_quantity, is_default, is_active, sort_order, status')
             .in('card_id', cardsBatch.map(card => card.id))
             .eq('is_active', true)
             .order('sort_order', { ascending: true })

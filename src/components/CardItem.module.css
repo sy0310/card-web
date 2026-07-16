@@ -167,9 +167,14 @@
   transition: all 0.2s ease;
 }
 
-.optionBtn:hover {
+.optionBtn:hover:not(:disabled) {
   border-color: var(--primary);
   background: rgba(192, 160, 255, 0.14);
+}
+
+.optionBtn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .optionBtn span {

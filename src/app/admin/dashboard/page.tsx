@@ -722,6 +722,7 @@ export default function AdminDashboard() {
           is_default: false,
           is_active: true,
           sort_order: current.length,
+          status: 'available',
         },
       ], fallbackPrice).map(option => ({
         ...option,
@@ -841,6 +842,7 @@ export default function AdminDashboard() {
               is_default: option.is_default,
               is_active: option.is_active,
               sort_order: option.sort_order,
+              status: option.status,
             }));
             const { data: insertedOptions, error: insertOptionsError } = await supabase
               .from('card_purchase_options')
@@ -1652,6 +1654,18 @@ export default function AdminDashboard() {
                             onChange={event => updatePurchaseOptionDraft(option.key, { is_active: event.target.checked })}
                           />
                           <span>Active</span>
+                        </label>
+                        <label className={styles.field}>
+                          <span>Availability</span>
+                          <select
+                            value={option.status}
+                            onChange={event => updatePurchaseOptionDraft(option.key, {
+                              status: event.target.value === 'sold_out' ? 'sold_out' : 'available',
+                            })}
+                          >
+                            <option value="available">Available</option>
+                            <option value="sold_out">Sold Out</option>
+                          </select>
                         </label>
                         <button
                           type="button"
@@ -2645,6 +2659,29 @@ export default function AdminDashboard() {
                 <section className={styles.settingsPanel}>
                   <div className={styles.panelHeader}>
                     <span>04</span>
+                    <h2>Announcement Banner</h2>
+                  </div>
+                  <label className={styles.checkboxField}>
+                    <input
+                      type="checkbox"
+                      checked={settings.banner_enabled}
+                      onChange={event => setSettings({ ...settings, banner_enabled: event.target.checked })}
+                    />
+                    <span>Show announcement banner</span>
+                  </label>
+                  <label className={styles.field}>
+                    <span>Banner text</span>
+                    <textarea
+                      rows={3}
+                      value={settings.banner_text}
+                      onChange={event => setSettings({ ...settings, banner_text: event.target.value })}
+                    />
+                  </label>
+                </section>
+
+                <section className={styles.settingsPanel}>
+                  <div className={styles.panelHeader}>
+                    <span>05</span>
                     <h2>Instagram Connection</h2>
                   </div>
                   <div className={styles.instagramStatusCard}>
@@ -2745,7 +2782,7 @@ export default function AdminDashboard() {
 
                 <section className={styles.settingsPanel}>
                   <div className={styles.panelHeader}>
-                    <span>05</span>
+                    <span>06</span>
                     <h2>Instagram Sync History</h2>
                   </div>
                   {instagramSyncLogs.length > 0 ? (

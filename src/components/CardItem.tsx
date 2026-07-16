@@ -6,6 +6,7 @@ import { isCardSoldOut } from '@/lib/cardInventory';
 import {
   getActivePurchaseOptions,
   getDefaultPurchaseOption,
+  isPurchaseOptionSoldOut,
   type PurchaseOption,
 } from '@/lib/purchaseOptions';
 import styles from './CardItem.module.css';
@@ -43,8 +44,10 @@ export default function CardItem({ card }: CardProps) {
   const pobName = card.pob_name || '';
   const activeOptions = getActivePurchaseOptions(card);
   const defaultOption = getDefaultPurchaseOption(card);
+  const availableOptions = activeOptions.filter(option => !isPurchaseOptionSoldOut(option));
   const displayPrice = Number.isFinite(Number(defaultOption.price)) ? Number(defaultOption.price) : 0;
   const hasMultipleOptions = activeOptions.length > 1;
+  const allOptionsSoldOut = activeOptions.length > 0 && availableOptions.length === 0;
 
   const addOptionToWishlist = (option: PurchaseOption) => {
     const unitPrice = Number.isFinite(Number(option.price)) ? Number(option.price) : 0;
@@ -65,9 +68,9 @@ export default function CardItem({ card }: CardProps) {
   };
 
   const handleAddClick = () => {
-    if (isUnavailable) return;
+    if (isUnavailable || allOptionsSoldOut) return;
     if (!hasMultipleOptions) {
-      addOptionToWishlist(activeOptions[0]);
+      addOptionToWishlist(availableOptions[0]);
       return;
     }
 
@@ -105,9 +108,11 @@ export default function CardItem({ card }: CardProps) {
           <button 
             className={styles.addBtn}
             onClick={handleAddClick}
-            disabled={isUnavailable}
+            disabled={isUnavailable || allOptionsSoldOut}
           >
-            {isPending ? 'Pending' : isSoldOut ? 'Sold Out' : hasMultipleOptions ? 'Choose Option' : 'Add to Wishlist'}
+            {isPending ? 'Pending' : isSoldOut || allOptionsSoldOut
+              ? 'Sold Out'
+              : hasMultipleOptions ? 'Choose Option' : 'Add to Wishlist'}
           </button>
         </div>
         {showOptionPicker && !isUnavailable && (
@@ -118,8 +123,9 @@ export default function CardItem({ card }: CardProps) {
                 type="button"
                 className={styles.optionBtn}
                 onClick={() => addOptionToWishlist(option)}
+                disabled={isPurchaseOptionSoldOut(option)}
               >
-                <span>{option.label}</span>
+                <span>{option.label}{isPurchaseOptionSoldOut(option) ? ' — Sold Out' : ''}</span>
                 <strong>${Number(option.price || 0).toFixed(2)}</strong>
               </button>
             ))}

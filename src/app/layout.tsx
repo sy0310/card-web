@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { WishlistProvider } from "@/context/WishlistContext";
+import AnnouncementBanner from '@/components/AnnouncementBanner';
 
 export const metadata: Metadata = {
   title: "K-pop Card Collection | Premium Marketplace",
@@ -15,6 +16,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
+        <AnnouncementBanner />
         <WishlistProvider>
           <div className="main-container">
             {children}

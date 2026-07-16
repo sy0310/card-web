@@ -60,7 +60,9 @@ INSERT INTO site_settings (key, value) VALUES
 ('site_title', 'K-POP CARD'),
 ('checkout_intro', 'Enter your Instagram handle so we can track your request.'),
 ('wishlist_footer_note', 'Please DM this image to complete your purchase.'),
-('low_stock_threshold', '2')
+('low_stock_threshold', '2'),
+('banner_enabled', 'true'),
+('banner_text', 'IG @meguro_abebe pls check carrd go rules before DM !!')
 ON CONFLICT (key) DO NOTHING;
 
 -- RLS Policies (Row Level Security)
