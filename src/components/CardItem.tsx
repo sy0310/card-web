@@ -9,7 +9,10 @@ import {
   getDefaultPurchaseOption,
   type PurchaseOption,
 } from '@/lib/purchaseOptions';
-import type { AvailabilityStatus } from '@/lib/availability';
+import {
+  pendingPurchaseOptionCustomerLabel,
+  type AvailabilityStatus,
+} from '@/lib/availability';
 import styles from './CardItem.module.css';
 
 type CardProps = {
@@ -115,7 +118,7 @@ export default function CardItem({ card }: CardProps) {
             {isPending ? 'Pending' : isSoldOut
               ? 'Sold Out'
               : noAvailableOptions
-                ? hasPendingOptions ? 'Unavailable' : 'Sold Out'
+                ? hasPendingOptions ? pendingPurchaseOptionCustomerLabel : 'Sold Out'
               : hasMultipleOptions ? 'Choose Option' : 'Add to Wishlist'}
           </button>
         </div>
@@ -129,7 +132,7 @@ export default function CardItem({ card }: CardProps) {
                 onClick={() => addOptionToWishlist(option)}
                 disabled={option.status !== 'available'}
               >
-                <span>{option.label}{option.status === 'pending' ? ' — Unavailable' : ''}</span>
+                <span>{option.label}{option.status === 'pending' ? ` — ${pendingPurchaseOptionCustomerLabel}` : ''}</span>
                 <strong>${Number(option.price || 0).toFixed(2)}</strong>
               </button>
             ))}

@@ -9,6 +9,8 @@ export const availabilityStatusOptions: ReadonlyArray<{
   { value: 'archived', label: 'Archived — hidden from customers' },
 ];
 
+export const pendingPurchaseOptionCustomerLabel = 'DM check';
+
 export function normalizeAvailabilityStatus(value: unknown): AvailabilityStatus {
   const status = String(value ?? '').trim().toLowerCase();
   return status === 'pending' || status === 'archived' ? status : 'available';
