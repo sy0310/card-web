@@ -1,4 +1,8 @@
 import { MAX_UNITS_PER_ITEM } from '@/lib/wishlistLimits';
+import {
+  normalizeAvailabilityStatus,
+  type AvailabilityStatus,
+} from '@/lib/availability';
 
 export type CardEditDraft = {
   title: string;
@@ -30,11 +34,11 @@ export type CardUpdatePayload = {
   unlimited_inventory: boolean;
   original_ig_url: string;
   source: string;
-  availability_status: CardAvailabilityStatus;
+  availability_status: AvailabilityStatus;
   pob_name?: string;
 };
 
-export type CardAvailabilityStatus = 'available' | 'pending' | 'archived';
+export type CardAvailabilityStatus = AvailabilityStatus;
 
 export type PurchaseOptionDraft = {
   key: string;
@@ -44,9 +48,8 @@ export type PurchaseOptionDraft = {
   min_quantity: string;
   max_quantity: string;
   is_default: boolean;
-  is_active: boolean;
   sort_order: string;
-  status?: 'available' | 'sold_out';
+  status?: AvailabilityStatus;
 };
 
 export type PurchaseOptionPayload = {
@@ -59,7 +62,7 @@ export type PurchaseOptionPayload = {
   is_default: boolean;
   is_active: boolean;
   sort_order: number;
-  status?: 'available' | 'sold_out';
+  status?: AvailabilityStatus;
 };
 
 export type AdminSettings = {
@@ -143,8 +146,14 @@ const settingKeys: (keyof AdminSettings)[] = [
 const trimValue = (value: unknown) => String(value ?? '').trim();
 
 export function normalizeCardAvailabilityStatus(value: unknown): CardAvailabilityStatus {
-  const status = trimValue(value).toLowerCase();
-  return status === 'pending' || status === 'archived' ? status : 'available';
+  return normalizeAvailabilityStatus(value);
+}
+
+function normalizeLegacyPurchaseOptionStatus(option: Partial<PurchaseOptionPayload>): AvailabilityStatus {
+  if (option.is_active === false) return 'archived';
+  return trimValue(option.status).toLowerCase() === 'sold_out'
+    ? 'pending'
+    : normalizeAvailabilityStatus(option.status);
 }
 
 const parseMoney = (value: string) => {
@@ -177,21 +186,24 @@ export function getAdminPurchaseOptions(card: AdminPurchaseOptionCard): Purchase
   return options.length > 0 ? options : [createFallbackAdminPurchaseOption(card)];
 }
 
-export function getActiveAdminPurchaseOptions(
+export function getPurchasableAdminPurchaseOptions(
   card: AdminPurchaseOptionCard,
   selectedOptionId?: string | null,
 ): PurchaseOptionPayload[] {
+  const storedOptions = card.purchase_options ?? [];
   const options = getAdminPurchaseOptions(card).filter(option => (
-    option.is_active || option.id === selectedOptionId
+    normalizeLegacyPurchaseOptionStatus(option) === 'available' || option.id === selectedOptionId
   ));
 
-  return options.length > 0 ? options : [createFallbackAdminPurchaseOption(card)];
+  return options.length > 0 || storedOptions.length > 0
+    ? options
+    : [createFallbackAdminPurchaseOption(card)];
 }
 
 export function getDefaultAdminPurchaseOption(card: AdminPurchaseOptionCard) {
-  const options = getActiveAdminPurchaseOptions(card);
-  return options.find(option => option.is_default && option.is_active)
-    ?? options.find(option => option.is_active)
+  const options = getPurchasableAdminPurchaseOptions(card);
+  return options.find(option => option.is_default && normalizeLegacyPurchaseOptionStatus(option) === 'available')
+    ?? options.find(option => normalizeLegacyPurchaseOptionStatus(option) === 'available')
     ?? options[0];
 }
 
@@ -199,7 +211,7 @@ export function getSelectedAdminPurchaseOption(
   card: AdminPurchaseOptionCard,
   selectedOptionId?: string | null,
 ) {
-  const options = getActiveAdminPurchaseOptions(card, selectedOptionId);
+  const options = getPurchasableAdminPurchaseOptions(card, selectedOptionId);
   return options.find(option => option.id === selectedOptionId)
     ?? getDefaultAdminPurchaseOption(card);
 }
@@ -272,7 +284,6 @@ export function createPurchaseOptionDrafts(
         min_quantity: '1',
         max_quantity: '',
         is_default: true,
-        is_active: true,
         sort_order: '0',
         status: 'available',
       },
@@ -294,9 +305,8 @@ export function createPurchaseOptionDrafts(
       min_quantity: trimValue(option.min_quantity ?? 1),
       max_quantity: option.max_quantity == null ? '' : trimValue(option.max_quantity),
       is_default: Boolean(option.is_default),
-      is_active: option.is_active !== false,
       sort_order: trimValue(option.sort_order ?? index),
-      status: option.status === 'sold_out' ? 'sold_out' : 'available',
+      status: normalizeLegacyPurchaseOptionStatus(option),
     })),
     fallbackPrice,
   );
@@ -317,20 +327,17 @@ export function normalizePurchaseOptionDrafts(
         max_quantity: trimValue(draft.max_quantity),
         sort_order: String(parseSortOrder(draft.sort_order, index)),
         is_default: Boolean(draft.is_default),
-        is_active: Boolean(draft.is_active),
-        status: draft.status === 'sold_out' ? 'sold_out' as const : 'available' as const,
+        status: normalizeAvailabilityStatus(draft.status),
       }))
     : createPurchaseOptionDrafts([], fallbackPrice);
 
-  const firstDefaultIndex = normalizedDrafts.findIndex(draft => draft.is_default);
-  const fallbackDefaultIndex = normalizedDrafts.findIndex(isValidPurchaseOptionDraft);
-  const defaultIndex = firstDefaultIndex >= 0
-    ? firstDefaultIndex
-    : Math.max(0, fallbackDefaultIndex);
+  const defaultIndex = normalizedDrafts.findIndex(draft => (
+    draft.is_default && draft.status === 'available' && isValidPurchaseOptionDraft(draft)
+  ));
 
   return normalizedDrafts.map((draft, index) => ({
     ...draft,
-    is_default: index === defaultIndex,
+    is_default: defaultIndex >= 0 && index === defaultIndex,
     sort_order: String(index),
   }));
 }
@@ -382,9 +389,11 @@ export function buildPurchaseOptionPayloads(
       min_quantity: minQuantity,
       max_quantity: parseMaximumQuantity(draft.max_quantity, minQuantity),
       is_default: draft.is_default,
-      is_active: draft.is_active,
+      // Retain the legacy column as a fixed compatibility value; availability
+      // status is the only state used by customer and purchase flows.
+      is_active: true,
       sort_order: index,
-      status: draft.status === 'sold_out' ? 'sold_out' : 'available',
+      status: normalizeAvailabilityStatus(draft.status),
     };
   });
 }

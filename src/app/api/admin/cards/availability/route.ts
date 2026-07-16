@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { authenticateAdminRequest, formatSupabaseAdminWriteError } from '@/lib/server/supabaseAdmin';
+import { availabilityStatusOptions, type AvailabilityStatus } from '@/lib/availability';
 
 export const runtime = 'nodejs';
 
-const validStatuses = new Set(['available', 'pending', 'archived']);
+const validStatuses: ReadonlySet<string> = new Set(availabilityStatusOptions.map(option => option.value));
 
 export async function POST(request: NextRequest) {
   try {
@@ -24,7 +25,7 @@ export async function POST(request: NextRequest) {
 
     const { data, error } = await auth.supabaseAdmin
       .from('cards')
-      .update({ availability_status: status })
+      .update({ availability_status: status as AvailabilityStatus })
       .in('id', cardIds)
       .select('id, availability_status');
     if (error) {

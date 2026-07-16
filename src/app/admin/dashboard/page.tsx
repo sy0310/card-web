@@ -13,6 +13,10 @@ import WishlistReceipt, {
 import { waitForImages } from '@/components/checkoutImageUtils';
 import { fetchAdminJsonWithRetry, formatAdminFetchError } from '@/lib/client/adminFetch';
 import { getWishlistQuantityError, MAX_UNITS_PER_ITEM } from '@/lib/wishlistLimits';
+import {
+  availabilityStatusOptions,
+  type AvailabilityStatus,
+} from '@/lib/availability';
 import styles from './page.module.css';
 import {
   type AdminSettings,
@@ -33,7 +37,7 @@ import {
   createWishlistItemsDraft,
   defaultAdminSettings,
   formatAdminError,
-  getActiveAdminPurchaseOptions,
+  getPurchasableAdminPurchaseOptions,
   getAdminPurchaseOptions,
   getCardDraftErrors,
   getDefaultAdminPurchaseOption,
@@ -47,6 +51,22 @@ import {
 
 type AdminTab = 'inventory' | 'wishlists' | 'analytics' | 'settings';
 
+function AvailabilityStatusSelect({
+  value,
+  onChange,
+}: {
+  value: AvailabilityStatus;
+  onChange: (status: AvailabilityStatus) => void;
+}) {
+  return (
+    <select value={value} onChange={event => onChange(event.target.value as AvailabilityStatus)}>
+      {availabilityStatusOptions.map(option => (
+        <option key={option.value} value={option.value}>{option.label}</option>
+      ))}
+    </select>
+  );
+}
+
 type AdminCard = CardUpdatePayload & {
   id: string;
   created_at?: string;
@@ -56,6 +76,12 @@ type AdminCard = CardUpdatePayload & {
 type CardSaveResponse = {
   success?: boolean;
   card?: AdminCard;
+  error?: string;
+};
+
+type PurchaseOptionsSaveResponse = {
+  success?: boolean;
+  options?: PurchaseOptionPayload[];
   error?: string;
 };
 
@@ -695,7 +721,11 @@ export default function AdminDashboard() {
     patch: Partial<Omit<PurchaseOptionDraft, 'key'>>,
   ) => {
     setPurchaseOptionDrafts(current =>
-      current.map(option => option.key === key ? { ...option, ...patch } : option),
+      current.map(option => {
+        if (option.key !== key) return option;
+        const next = { ...option, ...patch };
+        return next.status === 'available' ? next : { ...next, is_default: false };
+      }),
     );
   };
 
@@ -703,7 +733,7 @@ export default function AdminDashboard() {
     setPurchaseOptionDrafts(current =>
       current.map(option => ({
         ...option,
-        is_default: isDefault && option.key === key,
+        is_default: isDefault && option.key === key && option.status === 'available',
       })),
     );
   };
@@ -720,7 +750,6 @@ export default function AdminDashboard() {
           min_quantity: 1,
           max_quantity: null,
           is_default: false,
-          is_active: true,
           sort_order: current.length,
           status: 'available',
         },
@@ -824,36 +853,19 @@ export default function AdminDashboard() {
         );
 
         try {
-          const { error: deleteOptionsError } = await supabase
-            .from('card_purchase_options')
-            .delete()
-            .eq('card_id', editingCard.id);
-
-          if (deleteOptionsError) throw deleteOptionsError;
-
-          let savedPurchaseOptions: PurchaseOptionPayload[] = [];
-          if (optionPayloads.length > 0) {
-            const optionInsertRows = optionPayloads.map(option => ({
-              card_id: option.card_id,
-              label: option.label,
-              price: option.price,
-              min_quantity: option.min_quantity,
-              max_quantity: option.max_quantity,
-              is_default: option.is_default,
-              is_active: option.is_active,
-              sort_order: option.sort_order,
-              status: option.status,
-            }));
-            const { data: insertedOptions, error: insertOptionsError } = await supabase
-              .from('card_purchase_options')
-              .insert(optionInsertRows)
-              .select('*');
-
-            if (insertOptionsError) throw insertOptionsError;
-
-            savedPurchaseOptions = ((insertedOptions ?? []) as PurchaseOptionPayload[])
-              .sort((a, b) => a.sort_order - b.sort_order);
+          const { response: optionsResponse, data: optionsResult } = await fetchAdminJsonWithRetry<PurchaseOptionsSaveResponse>(
+            `/api/admin/cards/${encodeURIComponent(editingCard.id)}/purchase-options`,
+            {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ options: optionPayloads }),
+            },
+          );
+          if (!optionsResponse.ok || !optionsResult.success) {
+            throw new Error(optionsResult.error || 'Could not save purchase options.');
           }
+          const savedPurchaseOptions = (optionsResult.options ?? [])
+            .sort((a, b) => a.sort_order - b.sort_order);
 
           const savedCardWithOptions = {
             ...savedCard,
@@ -1574,14 +1586,10 @@ export default function AdminDashboard() {
                 </label>
                 <label className={styles.field}>
                   <span>Storefront availability</span>
-                  <select
-                    value={cardDraft.availability_status}
-                    onChange={event => handleCardDraftChange('availability_status', event.target.value)}
-                  >
-                    <option value="available">Available — customers can add it</option>
-                    <option value="pending">Pending — visible but unavailable</option>
-                    <option value="archived">Archived — hidden from customers</option>
-                  </select>
+                  <AvailabilityStatusSelect
+                    value={cardDraft.availability_status as AvailabilityStatus}
+                    onChange={status => handleCardDraftChange('availability_status', status)}
+                  />
                 </label>
                 <div className={`${styles.field} ${styles.wideField}`}>
                   <div className={styles.purchaseOptionsHeader}>
@@ -1647,25 +1655,12 @@ export default function AdminDashboard() {
                           />
                           <span>Default</span>
                         </label>
-                        <label className={styles.checkboxField}>
-                          <input
-                            type="checkbox"
-                            checked={option.is_active}
-                            onChange={event => updatePurchaseOptionDraft(option.key, { is_active: event.target.checked })}
-                          />
-                          <span>Active</span>
-                        </label>
                         <label className={styles.field}>
                           <span>Availability</span>
-                          <select
-                            value={option.status}
-                            onChange={event => updatePurchaseOptionDraft(option.key, {
-                              status: event.target.value === 'sold_out' ? 'sold_out' : 'available',
-                            })}
-                          >
-                            <option value="available">Available</option>
-                            <option value="sold_out">Sold Out</option>
-                          </select>
+                          <AvailabilityStatusSelect
+                            value={option.status ?? 'available'}
+                            onChange={status => updatePurchaseOptionDraft(option.key, { status })}
+                          />
                         </label>
                         <button
                           type="button"
@@ -1992,9 +1987,9 @@ export default function AdminDashboard() {
                             }}
                             aria-label="Purchase option"
                           >
-                            {selectedCard ? getActiveAdminPurchaseOptions(selectedCard, item.purchase_option_id).map(option => (
+                            {selectedCard ? getPurchasableAdminPurchaseOptions(selectedCard, item.purchase_option_id).map(option => (
                               <option key={option.id || `${selectedCard.id}-fallback`} value={getPersistentPurchaseOptionId(option.id) || ''}>
-                                {option.label}{!option.is_active ? ' (Inactive)' : ''} - ${Number(option.price || 0).toFixed(2)}
+                                {option.label}{option.status !== 'available' ? ` (${option.status})` : ''} - ${Number(option.price || 0).toFixed(2)}
                               </option>
                             )) : (
                               <option value="">Select a card first</option>
@@ -2276,7 +2271,7 @@ export default function AdminDashboard() {
                                 {inventoryPurchaseOptions.map((option, index) => (
                                   <div
                                     key={option.id ?? `${option.label}-${index}`}
-                                    className={`${styles.inventoryOption} ${option.is_active ? '' : styles.inventoryOptionInactive}`}
+                                    className={styles.inventoryOption}
                                   >
                                     <span className={styles.inventoryOptionName}>
                                       {option.label || 'Single'}
@@ -2287,8 +2282,8 @@ export default function AdminDashboard() {
                                     {option.is_default && (
                                       <span className={styles.inventoryOptionDefault}>Default</span>
                                     )}
-                                    {!option.is_active && (
-                                      <span className={styles.inventoryOptionInactiveBadge}>Inactive</span>
+                                    {option.status !== 'available' && (
+                                      <span className={styles.inventoryOptionInactiveBadge}>{option.status}</span>
                                     )}
                                   </div>
                                 ))}

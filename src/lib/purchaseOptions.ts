@@ -1,4 +1,9 @@
-export type PurchaseOptionStatus = 'available' | 'sold_out';
+import {
+  normalizeAvailabilityStatus,
+  type AvailabilityStatus,
+} from './availability';
+
+export type PurchaseOptionStatus = AvailabilityStatus;
 
 export type PurchaseOption = {
   id: string;
@@ -8,7 +13,9 @@ export type PurchaseOption = {
   min_quantity: number;
   max_quantity: number | null;
   is_default: boolean;
-  is_active: boolean;
+  // Kept only for reading historical rows. Availability status is the sole
+  // customer-facing and purchasing state.
+  is_active?: boolean;
   sort_order: number;
   status: PurchaseOptionStatus;
 };
@@ -38,13 +45,7 @@ const toSortOrder = (value: unknown) => {
 };
 
 export function normalizePurchaseOptionStatus(value: unknown): PurchaseOptionStatus {
-  return String(value ?? '').trim().toLowerCase() === 'sold_out'
-    ? 'sold_out'
-    : 'available';
-}
-
-export function isPurchaseOptionSoldOut(option: { status?: unknown }) {
-  return normalizePurchaseOptionStatus(option.status) === 'sold_out';
+  return normalizeAvailabilityStatus(value);
 }
 
 export function createFallbackPurchaseOption(card: CardWithPurchaseOptions): PurchaseOption {
@@ -56,7 +57,6 @@ export function createFallbackPurchaseOption(card: CardWithPurchaseOptions): Pur
     min_quantity: 1,
     max_quantity: null,
     is_default: true,
-    is_active: true,
     sort_order: 0,
     status: 'available',
   };
@@ -74,23 +74,34 @@ export function normalizePurchaseOption(row: Partial<PurchaseOption>): PurchaseO
     min_quantity: minQuantity,
     max_quantity: maxValue,
     is_default: Boolean(row.is_default),
-    is_active: row.is_active !== false,
     sort_order: toSortOrder(row.sort_order),
-    // Rows created before option availability was introduced keep their
-    // historical behavior: the card-level state decides whether they sell.
-    status: normalizePurchaseOptionStatus(row.status),
+    // This mirrors the data migration for deployments where a historical row
+    // is read before it has been rewritten.
+    status: row.is_active === false
+      ? 'archived'
+      : String(row.status ?? '').trim().toLowerCase() === 'sold_out'
+        ? 'pending'
+        : normalizePurchaseOptionStatus(row.status),
   };
 }
 
-export function getActivePurchaseOptions(card: CardWithPurchaseOptions): PurchaseOption[] {
-  const options = (card.purchase_options ?? [])
-    .filter(option => option.is_active)
-    .sort((a, b) => a.sort_order - b.sort_order);
+export function getCustomerPurchaseOptions(card: CardWithPurchaseOptions): PurchaseOption[] {
+  const storedOptions = card.purchase_options ?? [];
+  if (storedOptions.length === 0) return [createFallbackPurchaseOption(card)];
 
-  return options.length > 0 ? options : [createFallbackPurchaseOption(card)];
+  return storedOptions
+    .map(option => normalizePurchaseOption(option))
+    .filter(option => option.status !== 'archived')
+    .sort((a, b) => a.sort_order - b.sort_order);
 }
 
-export function getDefaultPurchaseOption(card: CardWithPurchaseOptions): PurchaseOption {
-  const options = getActivePurchaseOptions(card);
-  return options.find(option => option.is_default) ?? options[0];
+export function getAvailablePurchaseOptions(card: CardWithPurchaseOptions): PurchaseOption[] {
+  return getCustomerPurchaseOptions(card).filter(option => option.status === 'available');
+}
+
+export function getDefaultPurchaseOption(card: CardWithPurchaseOptions): PurchaseOption | undefined {
+  const options = getCustomerPurchaseOptions(card);
+  return options.find(option => option.is_default && option.status === 'available')
+    ?? options.find(option => option.status === 'available')
+    ?? options[0];
 }

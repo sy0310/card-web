@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import type { AdminPurchaseOptionCard } from './adminDashboardUtils.ts';
 import {
   applyCardPatch,
   buildCardUpdatePayload,
@@ -10,7 +11,7 @@ import {
   createPurchaseOptionDrafts,
   createWishlistItemsDraft,
   formatAdminError,
-  getActiveAdminPurchaseOptions,
+  getPurchasableAdminPurchaseOptions,
   getAdminPurchaseOptions,
   getCardDraftErrors,
   getDefaultAdminPurchaseOption,
@@ -118,7 +119,6 @@ test('createPurchaseOptionDrafts creates a default Single option when none exist
   assert.equal(drafts[0].min_quantity, '1');
   assert.equal(drafts[0].max_quantity, '');
   assert.equal(drafts[0].is_default, true);
-  assert.equal(drafts[0].is_active, true);
   assert.equal(drafts[0].sort_order, '0');
   assert.equal(drafts[0].status, 'available');
 });
@@ -132,7 +132,6 @@ test('normalizePurchaseOptionDrafts keeps only the first default option', () => 
       min_quantity: '1',
       max_quantity: '',
       is_default: true,
-      is_active: true,
       sort_order: '0',
     },
     {
@@ -142,7 +141,6 @@ test('normalizePurchaseOptionDrafts keeps only the first default option', () => 
       min_quantity: '2',
       max_quantity: '',
       is_default: true,
-      is_active: true,
       sort_order: '1',
     },
   ], '10');
@@ -160,7 +158,6 @@ test('getPurchaseOptionDraftErrors flags max quantity below min quantity', () =>
         min_quantity: '3',
         max_quantity: '2',
         is_default: true,
-        is_active: true,
         sort_order: '0',
       },
     ]),
@@ -178,7 +175,6 @@ test('getPurchaseOptionDraftErrors flags quantities exceeding MAX_UNITS_PER_ITEM
         min_quantity: '101',
         max_quantity: '',
         is_default: true,
-        is_active: true,
         sort_order: '0',
       },
       {
@@ -188,7 +184,6 @@ test('getPurchaseOptionDraftErrors flags quantities exceeding MAX_UNITS_PER_ITEM
         min_quantity: '1',
         max_quantity: '101',
         is_default: false,
-        is_active: true,
         sort_order: '1',
       },
       {
@@ -198,7 +193,6 @@ test('getPurchaseOptionDraftErrors flags quantities exceeding MAX_UNITS_PER_ITEM
         min_quantity: '100',
         max_quantity: '100',
         is_default: false,
-        is_active: true,
         sort_order: '2',
       },
     ]),
@@ -220,7 +214,6 @@ test('buildPurchaseOptionPayloads emits numeric prices and nullable max quantiti
         min_quantity: '1',
         max_quantity: '',
         is_default: true,
-        is_active: true,
         sort_order: 'not-a-number',
       },
       {
@@ -230,7 +223,6 @@ test('buildPurchaseOptionPayloads emits numeric prices and nullable max quantiti
         min_quantity: '2',
         max_quantity: '5',
         is_default: false,
-        is_active: false,
         sort_order: '4',
       },
     ], '9'),
@@ -255,7 +247,7 @@ test('buildPurchaseOptionPayloads emits numeric prices and nullable max quantiti
         min_quantity: 2,
         max_quantity: 5,
         is_default: false,
-        is_active: false,
+        is_active: true,
         sort_order: 1,
         status: 'available',
       },
@@ -263,8 +255,8 @@ test('buildPurchaseOptionPayloads emits numeric prices and nullable max quantiti
   );
 });
 
-test('getActiveAdminPurchaseOptions excludes inactive options for new order edits', () => {
-  const options = getActiveAdminPurchaseOptions({
+test('getPurchasableAdminPurchaseOptions excludes pending and archived options for new order edits', () => {
+  const options = getPurchasableAdminPurchaseOptions({
     id: 'card-1',
     price: 16,
     purchase_options: [
@@ -278,6 +270,7 @@ test('getActiveAdminPurchaseOptions excludes inactive options for new order edit
         is_default: true,
         is_active: true,
         sort_order: 0,
+        status: 'available',
       },
       {
         id: 'old-set',
@@ -287,8 +280,9 @@ test('getActiveAdminPurchaseOptions excludes inactive options for new order edit
         min_quantity: 1,
         max_quantity: null,
         is_default: false,
-        is_active: false,
+        is_active: true,
         sort_order: 1,
+        status: 'archived',
       },
     ],
   });
@@ -296,8 +290,8 @@ test('getActiveAdminPurchaseOptions excludes inactive options for new order edit
   assert.deepEqual(options.map(option => option.id), ['single']);
 });
 
-test('admin order option helpers preserve an inactive historical option', () => {
-  const card = {
+test('admin order option helpers preserve a historical archived option when selected', () => {
+  const card: AdminPurchaseOptionCard = {
     id: 'card-1',
     price: 16,
     purchase_options: [
@@ -311,6 +305,7 @@ test('admin order option helpers preserve an inactive historical option', () => 
         is_default: true,
         is_active: true,
         sort_order: 0,
+        status: 'available',
       },
       {
         id: 'old-set',
@@ -320,23 +315,24 @@ test('admin order option helpers preserve an inactive historical option', () => 
         min_quantity: 1,
         max_quantity: null,
         is_default: false,
-        is_active: false,
+        is_active: true,
         sort_order: 1,
+        status: 'archived',
       },
     ],
   };
 
   assert.deepEqual(getAdminPurchaseOptions(card).map(option => option.id), ['single', 'old-set']);
   assert.deepEqual(
-    getActiveAdminPurchaseOptions(card, 'old-set').map(option => option.id),
+    getPurchasableAdminPurchaseOptions(card, 'old-set').map(option => option.id),
     ['single', 'old-set'],
   );
   assert.equal(getSelectedAdminPurchaseOption(card, 'old-set')?.id, 'old-set');
   assert.equal(getDefaultAdminPurchaseOption(card)?.id, 'single');
 });
 
-test('admin order option helpers fall back to a Single option when all options are inactive', () => {
-  const options = getActiveAdminPurchaseOptions({
+test('admin order option helpers do not offer a replacement when all stored options are unavailable', () => {
+  const options = getPurchasableAdminPurchaseOptions({
     id: 'card-2',
     price: 9,
     purchase_options: [{
@@ -347,14 +343,13 @@ test('admin order option helpers fall back to a Single option when all options a
       min_quantity: 1,
       max_quantity: null,
       is_default: true,
-      is_active: false,
-      sort_order: 0,
+        is_active: true,
+        sort_order: 0,
+        status: 'pending',
     }],
   });
 
-  assert.deepEqual(options.map(option => option.id), ['fallback-card-2']);
-  assert.equal(options[0].label, 'Single');
-  assert.equal(options[0].price, 9);
+  assert.deepEqual(options.map(option => option.id), []);
 });
 
 test('normalizeAdminSettings keeps settings usable for storefront copy', () => {

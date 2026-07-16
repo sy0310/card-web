@@ -4,11 +4,12 @@ import { useState } from 'react';
 import { useWishlist } from '@/context/WishlistContext';
 import { isCardSoldOut } from '@/lib/cardInventory';
 import {
-  getActivePurchaseOptions,
+  getAvailablePurchaseOptions,
+  getCustomerPurchaseOptions,
   getDefaultPurchaseOption,
-  isPurchaseOptionSoldOut,
   type PurchaseOption,
 } from '@/lib/purchaseOptions';
+import type { AvailabilityStatus } from '@/lib/availability';
 import styles from './CardItem.module.css';
 
 type CardProps = {
@@ -20,7 +21,7 @@ type CardProps = {
     group_name: string;
     inventory_count: number;
     unlimited_inventory?: boolean | null;
-    availability_status?: 'available' | 'pending' | 'archived';
+    availability_status?: AvailabilityStatus | null;
     rarity?: string;
     pob_name?: string;
     purchase_options?: PurchaseOption[];
@@ -35,19 +36,20 @@ export default function CardItem({ card }: CardProps) {
 
   const isSoldOut = isCardSoldOut(card);
   const isPending = card.availability_status === 'pending';
-  const isUnavailable = isSoldOut || isPending;
+  const isUnavailable = isSoldOut || isPending || card.availability_status === 'archived';
 
   const title = card.title || 'Untitled';
   const imageUrl = card.image_url || '';
   const groupName = card.group_name || '';
   const rarity = card.rarity || '';
   const pobName = card.pob_name || '';
-  const activeOptions = getActivePurchaseOptions(card);
+  const customerOptions = getCustomerPurchaseOptions(card);
   const defaultOption = getDefaultPurchaseOption(card);
-  const availableOptions = activeOptions.filter(option => !isPurchaseOptionSoldOut(option));
-  const displayPrice = Number.isFinite(Number(defaultOption.price)) ? Number(defaultOption.price) : 0;
-  const hasMultipleOptions = activeOptions.length > 1;
-  const allOptionsSoldOut = activeOptions.length > 0 && availableOptions.length === 0;
+  const availableOptions = getAvailablePurchaseOptions(card);
+  const displayPrice = Number.isFinite(Number(defaultOption?.price)) ? Number(defaultOption?.price) : 0;
+  const hasMultipleOptions = customerOptions.length > 1;
+  const noAvailableOptions = availableOptions.length === 0;
+  const hasPendingOptions = customerOptions.some(option => option.status === 'pending');
 
   const addOptionToWishlist = (option: PurchaseOption) => {
     const unitPrice = Number.isFinite(Number(option.price)) ? Number(option.price) : 0;
@@ -68,7 +70,7 @@ export default function CardItem({ card }: CardProps) {
   };
 
   const handleAddClick = () => {
-    if (isUnavailable || allOptionsSoldOut) return;
+    if (isUnavailable || noAvailableOptions) return;
     if (!hasMultipleOptions) {
       addOptionToWishlist(availableOptions[0]);
       return;
@@ -108,24 +110,26 @@ export default function CardItem({ card }: CardProps) {
           <button 
             className={styles.addBtn}
             onClick={handleAddClick}
-            disabled={isUnavailable || allOptionsSoldOut}
+            disabled={isUnavailable || noAvailableOptions}
           >
-            {isPending ? 'Pending' : isSoldOut || allOptionsSoldOut
+            {isPending ? 'Pending' : isSoldOut
               ? 'Sold Out'
+              : noAvailableOptions
+                ? hasPendingOptions ? 'Unavailable' : 'Sold Out'
               : hasMultipleOptions ? 'Choose Option' : 'Add to Wishlist'}
           </button>
         </div>
         {showOptionPicker && !isUnavailable && (
           <div className={styles.optionPicker}>
-            {activeOptions.map(option => (
+            {customerOptions.map(option => (
               <button
                 key={option.id}
                 type="button"
                 className={styles.optionBtn}
                 onClick={() => addOptionToWishlist(option)}
-                disabled={isPurchaseOptionSoldOut(option)}
+                disabled={option.status !== 'available'}
               >
-                <span>{option.label}{isPurchaseOptionSoldOut(option) ? ' — Sold Out' : ''}</span>
+                <span>{option.label}{option.status === 'pending' ? ' — Unavailable' : ''}</span>
                 <strong>${Number(option.price || 0).toFixed(2)}</strong>
               </button>
             ))}

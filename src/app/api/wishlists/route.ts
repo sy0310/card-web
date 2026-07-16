@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseAdminClient } from '@/lib/server/supabaseAdmin';
 import { hasEnoughInventory } from '@/lib/cardInventory';
-import { isPurchaseOptionSoldOut } from '@/lib/purchaseOptions';
+import { isAvailableStatus } from '@/lib/availability';
 import { parseStrictWishlistQuantity, getWishlistQuantityError } from '@/lib/wishlistLimits';
 import { groupWishlistRequestItems, validateRequestedOptionQuantity, normalizeRequestPurchaseOptionId, type NormalizedWishlistRequestItem } from './wishlistRequestUtils';
 
@@ -32,7 +32,6 @@ type PurchaseOptionRow = {
   price: number | string | null;
   min_quantity: number | string | null;
   max_quantity: number | string | null;
-  is_active: boolean | null;
   status: string | null;
 };
 
@@ -130,18 +129,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'One or more selected cards are no longer available.' }, { status: 409 });
     }
 
-    const optionIds = [...new Set(groupedItems
-      .map(item => item.purchaseOptionId)
-      .filter(isPersistentOptionId))];
     const optionsById = new Map<string, PurchaseOptionRow>();
-    if (optionIds.length > 0) {
+    const optionsByCardId = new Map<string, PurchaseOptionRow[]>();
+    if (cardIds.length > 0) {
       const { data: optionData, error: optionsError } = await supabaseAdmin
         .from('card_purchase_options')
-        .select('id, card_id, label, price, min_quantity, max_quantity, is_active, status')
-        .in('id', optionIds);
+        .select('id, card_id, label, price, min_quantity, max_quantity, status')
+        .in('card_id', cardIds);
       if (optionsError) throw optionsError;
       for (const option of (optionData ?? []) as PurchaseOptionRow[]) {
         optionsById.set(option.id, option);
+        const cardOptions = optionsByCardId.get(option.card_id) ?? [];
+        cardOptions.push(option);
+        optionsByCardId.set(option.card_id, cardOptions);
       }
     }
 
@@ -149,7 +149,7 @@ export async function POST(request: NextRequest) {
     const rows: Record<string, unknown>[] = [];
     for (const item of groupedItems) {
       const card = cardsById.get(item.cardId)!;
-      if (card.availability_status !== 'available') {
+      if (!isAvailableStatus(card.availability_status)) {
         return NextResponse.json({ error: `“${card.title || 'This card'}” is currently unavailable and cannot be added to a wishlist.` }, { status: 409 });
       }
 
@@ -163,12 +163,15 @@ export async function POST(request: NextRequest) {
         ? optionsById.get(item.purchaseOptionId)
         : null;
       if (isPersistentOptionId(item.purchaseOptionId) && (
-        !option || option.card_id !== card.id || !option.is_active
+        !option || option.card_id !== card.id
       )) {
         return NextResponse.json({ error: `The selected purchase option for “${card.title || 'this card'}” is no longer available.` }, { status: 409 });
       }
-      if (option && isPurchaseOptionSoldOut({ status: option.status })) {
-        return NextResponse.json({ error: `The selected purchase option for “${card.title || 'this card'}” is sold out.` }, { status: 409 });
+      if (!isPersistentOptionId(item.purchaseOptionId) && (optionsByCardId.get(card.id)?.length ?? 0) > 0) {
+        return NextResponse.json({ error: `The selected purchase option for “${card.title || 'this card'}” is no longer available.` }, { status: 409 });
+      }
+      if (option && !isAvailableStatus(option.status)) {
+        return NextResponse.json({ error: `The selected purchase option for “${card.title || 'this card'}” is currently unavailable.` }, { status: 409 });
       }
 
       const minQuantity = Math.max(1, Math.floor(Number(option?.min_quantity) || 1));

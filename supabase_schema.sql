@@ -54,6 +54,33 @@ CREATE TABLE IF NOT EXISTS site_settings (
     value TEXT NOT NULL
 );
 
+-- Purchase options use the same three-state availability model as cards.
+-- is_active is retained only for compatibility with historical records; new
+-- application writes keep it true and rely exclusively on status.
+ALTER TABLE cards
+ADD COLUMN IF NOT EXISTS availability_status TEXT NOT NULL DEFAULT 'available'
+CHECK (availability_status IN ('available', 'pending', 'archived'));
+
+CREATE TABLE IF NOT EXISTS card_purchase_options (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    card_id UUID NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+    label TEXT NOT NULL,
+    price DECIMAL(10, 2) NOT NULL DEFAULT 0,
+    min_quantity INTEGER NOT NULL DEFAULT 1,
+    max_quantity INTEGER,
+    is_default BOOLEAN NOT NULL DEFAULT false,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'available'
+      CHECK (status IN ('available', 'pending', 'archived')),
+    CHECK (NOT is_default OR status = 'available'),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS card_purchase_options_one_default_per_card_idx
+ON card_purchase_options(card_id)
+WHERE is_default = true;
+
 -- Initial Settings
 INSERT INTO site_settings (key, value) VALUES 
 ('official_ig_handle', '@official_account'),

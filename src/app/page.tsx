@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import styles from "./page.module.css";
 import CardItem from '@/components/CardItem';
+import AnnouncementBanner from '@/components/AnnouncementBanner';
 import WishlistDrawer from '@/components/WishlistDrawer';
 import { useWishlist } from '@/context/WishlistContext';
 import {
@@ -11,6 +12,7 @@ import {
   normalizePurchaseOption,
   type PurchaseOption,
 } from '@/lib/purchaseOptions';
+import { normalizeAvailabilityStatus, type AvailabilityStatus } from '@/lib/availability';
 import {
   buildStorefrontSearchFilter,
   createStorefrontRequestTracker,
@@ -31,7 +33,7 @@ type StorefrontCard = {
   group_name: string;
   inventory_count: number;
   unlimited_inventory?: boolean | null;
-  availability_status: 'available' | 'pending' | 'archived';
+  availability_status: AvailabilityStatus;
   rarity?: string;
   pob_name?: string;
   purchase_options: PurchaseOption[];
@@ -147,7 +149,7 @@ export default function Home() {
         inventory_count: Number.isFinite(Number(card.inventory_count))
           ? Number(card.inventory_count)
           : 0,
-        availability_status: card.availability_status === 'pending' ? 'pending' : 'available',
+        availability_status: normalizeAvailabilityStatus(card.availability_status),
         purchase_options: [],
       }));
       const optionsByCardId = new Map<string, PurchaseOption[]>();
@@ -169,9 +171,8 @@ export default function Home() {
         try {
           ({ data: optionsData, error: optionsError } = await supabase
             .from('card_purchase_options')
-            .select('id, card_id, label, price, min_quantity, max_quantity, is_default, is_active, sort_order, status')
+            .select('id, card_id, label, price, min_quantity, max_quantity, is_default, sort_order, status')
             .in('card_id', cardsBatch.map(card => card.id))
-            .eq('is_active', true)
             .order('sort_order', { ascending: true })
             .retry(false)
             .abortSignal(optionsController.signal));
@@ -383,6 +384,8 @@ export default function Home() {
   });
 
   return (
+    <>
+    <AnnouncementBanner />
     <main className={styles.main}>
       <WishlistDrawer isOpen={isWishlistOpen} onClose={() => setIsWishlistOpen(false)} />
       
@@ -471,5 +474,6 @@ export default function Home() {
         </section>
       )}
     </main>
+    </>
   );
 }
