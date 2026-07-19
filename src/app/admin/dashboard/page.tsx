@@ -253,6 +253,7 @@ export default function AdminDashboard() {
   const [savingInstagramSettings, setSavingInstagramSettings] = useState(false);
   const [testingInstagramConnection, setTestingInstagramConnection] = useState(false);
   const [syncingInstagram, setSyncingInstagram] = useState(false);
+  const instagramBusy = savingInstagramSettings || testingInstagramConnection || syncingInstagram;
   const [analyticsDays, setAnalyticsDays] = useState<7 | 30 | 90>(30);
   const [analytics, setAnalytics] = useState<AnalyticsResponse | null>(null);
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
@@ -2741,7 +2742,7 @@ export default function AdminDashboard() {
                       type="button"
                       className={styles.addBtn}
                       onClick={() => void handleSaveInstagramSettings()}
-                      disabled={savingInstagramSettings}
+                      disabled={instagramBusy}
                     >
                       {savingInstagramSettings ? 'Saving...' : 'Save Instagram settings'}
                     </button>
@@ -2749,7 +2750,7 @@ export default function AdminDashboard() {
                       type="button"
                       className={styles.secondaryBtn}
                       onClick={() => void handleTestInstagramConnection()}
-                      disabled={testingInstagramConnection}
+                      disabled={instagramBusy}
                     >
                       {testingInstagramConnection ? 'Testing...' : 'Test connection'}
                     </button>
@@ -2768,7 +2769,7 @@ export default function AdminDashboard() {
                       type="button"
                       className={styles.secondaryBtn}
                       onClick={() => void handleSyncInstagram()}
-                      disabled={syncingInstagram}
+                      disabled={instagramBusy}
                     >
                       {syncingInstagram ? 'Syncing...' : 'Sync post'}
                     </button>

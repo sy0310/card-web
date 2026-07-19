@@ -1076,6 +1076,11 @@
 
 .instagramSyncBox .field {
   flex: 1;
+  min-width: 0;
+}
+
+.instagramSyncBox input {
+  min-width: 0;
 }
 
 .instagramLogList {
@@ -1096,6 +1101,10 @@
   border-bottom: none;
 }
 
+.instagramLogRow > div:first-child {
+  min-width: 0;
+}
+
 .instagramLogRow strong,
 .instagramLogRow span,
 .instagramLogMeta {
@@ -1107,6 +1116,7 @@
   margin-top: 0.25rem;
   color: var(--text-muted);
   line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .instagramLogMeta {
@@ -1301,6 +1311,27 @@
 
   .orderCardResult {
     grid-template-columns: 28px minmax(0, 1fr) auto;
+  }
+
+  .instagramActions,
+  .instagramSyncBox {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .instagramActions button,
+  .instagramSyncBox button {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .instagramLogRow {
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .instagramLogMeta {
+    text-align: left;
   }
 }
 
