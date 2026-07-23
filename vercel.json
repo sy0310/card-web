@@ -14,5 +14,11 @@
       "source": "/api/fetch_ig",
       "destination": "/api/fetch_ig.py"
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/cleanup-receipts",
+      "schedule": "0 8 * * *"
+    }
   ]
 }
