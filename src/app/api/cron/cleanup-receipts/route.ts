@@ -1,16 +1,20 @@
 import { NextResponse } from 'next/server';
 import { createSupabaseAdminClient } from '@/lib/server/supabaseAdmin';
-import { isValidReceiptStoragePath } from '@/app/api/wishlists/receiptApiUtils';
 import {
   validateCronAuthHeader,
   filterEligibleExpiredReceipts,
   MAX_CLEANUP_BATCH_SIZE,
 } from './cleanupUtils';
 import {
-  calculateNextRetryDate,
   isObjectNotFoundError,
   QueueTaskRecord,
 } from './cleanupQueueUtils';
+import {
+  processExpiredReceipt,
+  processCleanupQueueTask,
+  ProcessExpiredReceiptDeps,
+  ProcessCleanupQueueTaskDeps,
+} from './cleanupOrchestration';
 
 export const runtime = 'nodejs';
 
@@ -32,8 +36,97 @@ export async function GET(request: Request) {
     const nowIso = now.toISOString();
 
     let totalSelected = 0;
-    let totalDeleted = 0;
+    let storageDeleted = 0;
+    let storageAlreadyMissing = 0;
+    let queueCompleted = 0;
+    let skippedReferenced = 0;
     let totalFailed = 0;
+
+    const expiredDeps: ProcessExpiredReceiptDeps = {
+      queueUpsert: async (storagePath, wishlistId, nowIsoStr) => {
+        const { error } = await supabaseAdmin
+          .from('receipt_file_cleanup_queue')
+          .upsert({
+            storage_path: storagePath,
+            wishlist_id: wishlistId,
+            reason: 'expired_receipt',
+            delete_after: nowIsoStr,
+            updated_at: nowIsoStr,
+          });
+        return error ? { ok: false, error: error.message } : { ok: true };
+      },
+      clearWishlistStoragePath: async ({ wishlistId, expectedStoragePath, expectedExpiresAt }) => {
+        const { data, error } = await supabaseAdmin
+          .from('wishlists')
+          .update({ receipt_storage_path: null })
+          .eq('id', wishlistId)
+          .eq('receipt_storage_path', expectedStoragePath)
+          .eq('receipt_expires_at', expectedExpiresAt)
+          .select('id');
+
+        if (error) {
+          return { ok: false, error: error.message };
+        }
+        if (!data || data.length === 0) {
+          return { ok: false, error: 'OCC update matched 0 rows' };
+        }
+        return { ok: true };
+      },
+      removeStorageFile: async (storagePath) => {
+        const { data: removedFiles, error } = await supabaseAdmin.storage
+          .from('wishlist-receipts')
+          .remove([storagePath]);
+
+        const isNotFound = error && isObjectNotFoundError(error);
+        const isRemoved = (removedFiles ?? []).some(f => f.name === storagePath);
+
+        if (!error || isNotFound || isRemoved) {
+          return {
+            ok: true,
+            state: isNotFound ? 'already_missing' : 'deleted',
+          };
+        }
+        return { ok: false, error: error?.message || 'Storage removal error' };
+      },
+      queueDelete: async (storagePath) => {
+        const { error } = await supabaseAdmin
+          .from('receipt_file_cleanup_queue')
+          .delete()
+          .eq('storage_path', storagePath);
+        return error ? { ok: false, error: error.message } : { ok: true };
+      },
+      queueUpdateRetry: async (storagePath, attemptCount, errorMsg, nextRetryIso, nowIsoStr) => {
+        const { error } = await supabaseAdmin
+          .from('receipt_file_cleanup_queue')
+          .update({
+            attempt_count: attemptCount,
+            last_error: errorMsg,
+            delete_after: nextRetryIso,
+            updated_at: nowIsoStr,
+          })
+          .eq('storage_path', storagePath);
+        return error ? { ok: false, error: error.message } : { ok: true };
+      },
+    };
+
+    const queueDeps: ProcessCleanupQueueTaskDeps = {
+      findWishlistReference: async (storagePath) => {
+        const { data, error } = await supabaseAdmin
+          .from('wishlists')
+          .select('id')
+          .eq('receipt_storage_path', storagePath)
+          .limit(1)
+          .maybeSingle();
+
+        if (error) {
+          return { ok: false, error: error.message };
+        }
+        return { ok: true, isReferenced: !!data };
+      },
+      removeStorageFile: expiredDeps.removeStorageFile,
+      queueDelete: expiredDeps.queueDelete,
+      queueUpdateRetry: expiredDeps.queueUpdateRetry,
+    };
 
     // --- PART 1: Process Expired Receipt Records ---
     const { data: rawExpiredRecords, error: expiredQueryError } = await supabaseAdmin
@@ -52,76 +145,20 @@ export async function GET(request: Request) {
     totalSelected += eligibleExpired.length;
 
     for (const record of eligibleExpired) {
-      const storagePath = record.receipt_storage_path!;
-      if (!isValidReceiptStoragePath(storagePath)) {
-        totalFailed += 1;
-        continue;
-      }
+      const res = await processExpiredReceipt(
+        {
+          id: record.id,
+          receipt_storage_path: record.receipt_storage_path!,
+          receipt_expires_at: record.receipt_expires_at!,
+        },
+        now,
+        expiredDeps,
+      );
 
-      // 1. Enqueue expired task
-      const { error: upsertQueueErr } = await supabaseAdmin
-        .from('receipt_file_cleanup_queue')
-        .upsert({
-          storage_path: storagePath,
-          wishlist_id: record.id,
-          reason: 'expired_receipt',
-          delete_after: nowIso,
-          updated_at: nowIso,
-        });
-
-      if (upsertQueueErr) {
-        console.error(`Could not enqueue expired receipt for ${storagePath}:`, upsertQueueErr);
-      }
-
-      // 2. Attempt physical deletion from Storage
-      const { data: removedFiles, error: storageError } = await supabaseAdmin.storage
-        .from('wishlist-receipts')
-        .remove([storagePath]);
-
-      const isNotFound = storageError && isObjectNotFoundError(storageError);
-      const isRemoved = (removedFiles ?? []).some(f => f.name === storagePath);
-
-      if (!storageError || isNotFound || isRemoved) {
-        // Physical removal succeeded or file was already missing
-        // ONLY clear receipt_storage_path; Strictly PRESERVE receipt_expires_at
-        const { error: dbUpdateError } = await supabaseAdmin
-          .from('wishlists')
-          .update({ receipt_storage_path: null })
-          .eq('id', record.id)
-          .eq('receipt_storage_path', storagePath)
-          .eq('receipt_expires_at', record.receipt_expires_at!);
-
-        if (!dbUpdateError) {
-          totalDeleted += 1;
-          const { error: delQueueErr } = await supabaseAdmin
-            .from('receipt_file_cleanup_queue')
-            .delete()
-            .eq('storage_path', storagePath);
-
-          if (delQueueErr) {
-            console.warn(`Could not delete queue entry for processed expired file ${storagePath}:`, delQueueErr);
-          }
-        } else {
-          totalFailed += 1;
-        }
-      } else {
-        totalFailed += 1;
-        // Keep DB path and update queue backoff
-        const nextRetry = calculateNextRetryDate(1, now).toISOString();
-        const { error: updateRetryErr } = await supabaseAdmin
-          .from('receipt_file_cleanup_queue')
-          .update({
-            attempt_count: 1,
-            last_error: storageError?.message || 'Storage removal error',
-            delete_after: nextRetry,
-            updated_at: nowIso,
-          })
-          .eq('storage_path', storagePath);
-
-        if (updateRetryErr) {
-          console.error(`Could not update queue retry state for ${storagePath}:`, updateRetryErr);
-        }
-      }
+      if (res.storageDeleted) storageDeleted += 1;
+      if (res.storageAlreadyMissing) storageAlreadyMissing += 1;
+      if (res.queueCompleted) queueCompleted += 1;
+      if (res.failed) totalFailed += 1;
     }
 
     // --- PART 2: Process Cleanup Queue Due Tasks (delete_after <= now) ---
@@ -142,118 +179,26 @@ export async function GET(request: Request) {
       totalSelected += tasks.length;
 
       for (const task of tasks) {
-        const path = task.storage_path;
+        const res = await processCleanupQueueTask(task, now, queueDeps);
 
-        // Path format validation
-        if (!isValidReceiptStoragePath(path)) {
-          const nextAttempt = task.attempt_count + 1;
-          const nextRetry = calculateNextRetryDate(nextAttempt, now).toISOString();
-          const { error: invalidPathErr } = await supabaseAdmin
-            .from('receipt_file_cleanup_queue')
-            .update({
-              attempt_count: nextAttempt,
-              last_error: 'Invalid storage path format',
-              delete_after: nextRetry,
-              updated_at: nowIso,
-            })
-            .eq('storage_path', path);
-
-          if (invalidPathErr) {
-            console.error(`Could not update queue error for invalid path ${path}:`, invalidPathErr);
-          }
-          totalFailed += 1;
-          continue;
-        }
-
-        // CRITICAL FAIL-CLOSED PROTECTION: Check if path is currently referenced by ANY Wishlist
-        const { data: refWishlist, error: refQueryError } = await supabaseAdmin
-          .from('wishlists')
-          .select('id')
-          .eq('receipt_storage_path', path)
-          .maybeSingle();
-
-        if (refQueryError) {
-          // DB Reference Query Failed -> FAIL-CLOSED: DO NOT CALL Storage.remove! Schedule backoff retry instead.
-          console.error(`Error checking wishlist reference for ${path}:`, refQueryError);
-          const nextAttempt = task.attempt_count + 1;
-          const nextRetry = calculateNextRetryDate(nextAttempt, now).toISOString();
-          const { error: updateRetryErr } = await supabaseAdmin
-            .from('receipt_file_cleanup_queue')
-            .update({
-              attempt_count: nextAttempt,
-              last_error: refQueryError.message || 'Wishlist reference query failed',
-              delete_after: nextRetry,
-              updated_at: nowIso,
-            })
-            .eq('storage_path', path);
-
-          if (updateRetryErr) {
-            console.error(`Could not update retry state on ref query error for ${path}:`, updateRetryErr);
-          }
-          totalFailed += 1;
-          continue; // ABSOLUTELY DO NOT DELETE FILE!
-        }
-
-        if (refWishlist) {
-          // File is active -> DO NOT DELETE Storage file! Remove queue entry.
-          const { error: delQueueErr } = await supabaseAdmin
-            .from('receipt_file_cleanup_queue')
-            .delete()
-            .eq('storage_path', path);
-
-          if (delQueueErr) {
-            console.warn(`Could not remove queue task for active referenced file ${path}:`, delQueueErr);
-          }
-          totalDeleted += 1;
-          continue;
-        }
-
-        // File is unreferenced (orphaned) -> Attempt physical deletion
-        const { data: removedFiles, error: removeErr } = await supabaseAdmin.storage
-          .from('wishlist-receipts')
-          .remove([path]);
-
-        const isNotFound = removeErr && isObjectNotFoundError(removeErr);
-        const isRemoved = (removedFiles ?? []).some(f => f.name === path);
-
-        if (!removeErr || isNotFound || isRemoved) {
-          // Deletion succeeded or file is already gone -> remove queue entry
-          const { error: delQueueErr } = await supabaseAdmin
-            .from('receipt_file_cleanup_queue')
-            .delete()
-            .eq('storage_path', path);
-
-          if (delQueueErr) {
-            console.warn(`Could not delete queue entry for removed file ${path}:`, delQueueErr);
-          }
-          totalDeleted += 1;
-        } else {
-          // Deletion failed -> increment attempt count and set backoff
-          const nextAttempt = task.attempt_count + 1;
-          const nextRetry = calculateNextRetryDate(nextAttempt, now).toISOString();
-          const { error: updateErr } = await supabaseAdmin
-            .from('receipt_file_cleanup_queue')
-            .update({
-              attempt_count: nextAttempt,
-              last_error: removeErr?.message || 'Storage removal failed',
-              delete_after: nextRetry,
-              updated_at: nowIso,
-            })
-            .eq('storage_path', path);
-
-          if (updateErr) {
-            console.error(`Could not update retry state for ${path}:`, updateErr);
-          }
-          totalFailed += 1;
-        }
+        if (res.storageDeleted) storageDeleted += 1;
+        if (res.storageAlreadyMissing) storageAlreadyMissing += 1;
+        if (res.queueCompleted) queueCompleted += 1;
+        if (res.skippedReferenced) skippedReferenced += 1;
+        if (res.failed) totalFailed += 1;
       }
     }
 
     return NextResponse.json({
       success: true,
       selected: totalSelected,
-      deleted: totalDeleted,
+      storage_deleted: storageDeleted,
+      storage_already_missing: storageAlreadyMissing,
+      queue_completed: queueCompleted,
+      skipped_referenced: skippedReferenced,
       failed: totalFailed,
+      // "deleted" represents files that reached a non-existent state in Storage (either physically deleted or already missing)
+      deleted: storageDeleted + storageAlreadyMissing,
     });
   } catch (error: unknown) {
     console.error('Unexpected error during receipt cleanup cron:', error);

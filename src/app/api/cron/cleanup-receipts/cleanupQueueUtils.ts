@@ -6,7 +6,7 @@ export type ReceiptQueueReason =
 
 export type QueueTaskRecord = {
   storage_path: string;
-  wishlist_id: string;
+  wishlist_id: string | null;
   reason: ReceiptQueueReason;
   delete_after: string;
   attempt_count: number;

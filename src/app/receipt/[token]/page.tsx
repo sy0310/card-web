@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import { createSupabaseAdminClient } from '@/lib/server/supabaseAdmin';
 import { isUuid } from '@/app/api/wishlists/receiptApiUtils';
 import { getReceiptPageState } from './receiptPageStateUtils';
+import { getReceiptSignedUrlTtlSeconds } from './receiptSignedUrlUtils';
 import ReceiptActions from '@/components/ReceiptActions';
 import styles from './receiptPage.module.css';
 
@@ -60,9 +61,12 @@ export default async function ReceiptPage({ params }: ReceiptPageProps) {
     notFound();
   }
 
+  const now = new Date();
+
   const state = getReceiptPageState({
     storagePath: wishlistRecord.receipt_storage_path,
     expiresAt: wishlistRecord.receipt_expires_at,
+    now,
   });
 
   // 2. Receipt Expired state
@@ -107,13 +111,35 @@ export default async function ReceiptPage({ params }: ReceiptPageProps) {
     );
   }
 
-  // 5. Available State: Generate signed URL for private storage file
+  const signedUrlTtlSeconds = getReceiptSignedUrlTtlSeconds(
+    wishlistRecord.receipt_expires_at,
+    now,
+  );
+
+  if (!signedUrlTtlSeconds) {
+    return (
+      <main className={styles.pageWrapper}>
+        <div className={styles.cardContainer}>
+          <div className={styles.errorIcon}>⏳</div>
+          <h1 className={styles.title}>Receipt Expired</h1>
+          <p className={styles.description}>
+            This receipt image was available for 30 days. Please contact the seller if you need another copy.
+          </p>
+          <Link href="/" className={styles.homeLink}>
+            Back to Storefront
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
+  // 5. Available State: Generate signed URL for private storage file with calculated TTL
   let signedUrl: string | null = null;
   try {
     const supabaseAdmin = createSupabaseAdminClient();
     const { data: signedData, error: signedError } = await supabaseAdmin.storage
       .from('wishlist-receipts')
-      .createSignedUrl(wishlistRecord.receipt_storage_path!, 3600);
+      .createSignedUrl(wishlistRecord.receipt_storage_path!, signedUrlTtlSeconds);
 
     if (signedError || !signedData?.signedUrl) {
       console.error('Error generating signed URL for receipt:', signedError);
