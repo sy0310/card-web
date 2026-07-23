@@ -1,10 +1,11 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { createSupabaseAdminClient } from '@/lib/server/supabaseAdmin';
 import {
   isUuid,
   validateReceiptFileHeader,
   hasPngSignature,
 } from '../../receiptApiUtils';
+import { calculateNextRetryDate } from '@/app/api/cron/cleanup-receipts/cleanupQueueUtils';
 
 export const runtime = 'nodejs';
 
@@ -81,24 +82,25 @@ export async function POST(request: Request, context: UploadReceiptContext) {
     const fileBody = Buffer.from(arrayBuffer);
     const initialDeleteAfter = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour buffer
 
-    // 1. Pre-register uncommitted upload task in cleanup queue before physical Storage upload
-    try {
-      await supabaseAdmin
-        .from('receipt_file_cleanup_queue')
-        .upsert({
-          storage_path: newStoragePath,
-          wishlist_id: wishlistId,
-          reason: 'uncommitted_upload',
-          delete_after: initialDeleteAfter,
-          attempt_count: 0,
-          last_error: null,
-          updated_at: new Date().toISOString(),
-        });
-    } catch (err: unknown) {
-      console.warn('Could not pre-register cleanup queue task:', err);
+    // Step 1: Pre-register uncommitted upload task in cleanup queue before physical Storage upload (Fail-Closed)
+    const { error: queueInsertError } = await supabaseAdmin
+      .from('receipt_file_cleanup_queue')
+      .upsert({
+        storage_path: newStoragePath,
+        wishlist_id: wishlistId,
+        reason: 'uncommitted_upload',
+        delete_after: initialDeleteAfter,
+        attempt_count: 0,
+        last_error: null,
+        updated_at: new Date().toISOString(),
+      });
+
+    if (queueInsertError) {
+      console.error('Could not pre-register receipt cleanup task:', queueInsertError);
+      return NextResponse.json({ error: 'Could not prepare receipt upload.' }, { status: 500 });
     }
 
-    // 2. Upload new file to Storage (upsert: false because path is unique)
+    // Step 2: Upload new file to Storage (upsert: false because path is unique)
     const { error: uploadError } = await supabaseAdmin.storage
       .from('wishlist-receipts')
       .upload(newStoragePath, fileBody, {
@@ -108,17 +110,20 @@ export async function POST(request: Request, context: UploadReceiptContext) {
 
     if (uploadError) {
       console.error('Supabase Storage upload error:', uploadError);
-      // Remove queue task if upload itself failed
-      void supabaseAdmin
+      const { error: deleteQueueErr } = await supabaseAdmin
         .from('receipt_file_cleanup_queue')
         .delete()
         .eq('storage_path', newStoragePath);
+
+      if (deleteQueueErr) {
+        console.warn('Failed to delete queue entry on upload error:', deleteQueueErr);
+      }
       return NextResponse.json({ error: 'Could not upload receipt image to storage.' }, { status: 500 });
     }
 
-    // 3. Register previous path in cleanup queue if replacing an old receipt
+    // Step 3: Register previous path in cleanup queue if replacing an old receipt (Fail-Closed Rollback)
     if (previousStoragePath && previousStoragePath !== newStoragePath) {
-      void supabaseAdmin
+      const { error: oldQueueError } = await supabaseAdmin
         .from('receipt_file_cleanup_queue')
         .upsert({
           storage_path: previousStoragePath,
@@ -127,13 +132,42 @@ export async function POST(request: Request, context: UploadReceiptContext) {
           delete_after: initialDeleteAfter,
           updated_at: new Date().toISOString(),
         });
+
+      if (oldQueueError) {
+        console.error('Could not register previous receipt cleanup task:', oldQueueError);
+
+        const { error: rollbackError } = await supabaseAdmin.storage
+          .from('wishlist-receipts')
+          .remove([newStoragePath]);
+
+        if (!rollbackError) {
+          const { error: delNewTaskErr } = await supabaseAdmin
+            .from('receipt_file_cleanup_queue')
+            .delete()
+            .eq('storage_path', newStoragePath);
+          if (delNewTaskErr) console.warn('Could not remove newStoragePath queue task on rollback:', delNewTaskErr);
+        } else {
+          const { error: updateNewTaskErr } = await supabaseAdmin
+            .from('receipt_file_cleanup_queue')
+            .update({
+              reason: 'compensation_failed',
+              delete_after: new Date().toISOString(),
+              last_error: rollbackError.message,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('storage_path', newStoragePath);
+          if (updateNewTaskErr) console.error('Could not update compensation_failed for newStoragePath:', updateNewTaskErr);
+        }
+
+        return NextResponse.json({ error: 'Could not prepare receipt replacement.' }, { status: 500 });
+      }
     }
 
     // Calculate 30-day expiration date
     const generatedAt = new Date();
     const expiresAt = new Date(generatedAt.getTime() + 30 * 24 * 60 * 60 * 1000);
 
-    // 4. Optimistic Concurrency Control DB Update
+    // Step 4: Optimistic Concurrency Control DB Update
     let updateQuery = supabaseAdmin
       .from('wishlists')
       .update({
@@ -160,32 +194,30 @@ export async function POST(request: Request, context: UploadReceiptContext) {
       .select('receipt_token')
       .maybeSingle();
 
-    // 5. Compensation Rollback & Queue Update: If DB update failed/conflicted
+    // Step 5: Compensation Rollback & Queue Update: If DB update failed/conflicted
     if (updateError || !updatedWishlist?.receipt_token) {
       console.warn('Optimistic concurrency update failed. Rolling back uploaded file:', newStoragePath);
 
-      // Clean up previous storage path queue registration since old path is still current
       if (previousStoragePath) {
-        void supabaseAdmin
+        const { error: delOldQueueErr } = await supabaseAdmin
           .from('receipt_file_cleanup_queue')
           .delete()
           .eq('storage_path', previousStoragePath);
+        if (delOldQueueErr) console.warn('Could not clean up old path queue entry on OCC conflict:', delOldQueueErr);
       }
 
-      // Try physical compensation removal
       const { error: removeError } = await supabaseAdmin.storage
         .from('wishlist-receipts')
         .remove([newStoragePath]);
 
       if (!removeError) {
-        // Remove queue entry if compensation succeeded
-        void supabaseAdmin
+        const { error: delNewTaskErr } = await supabaseAdmin
           .from('receipt_file_cleanup_queue')
           .delete()
           .eq('storage_path', newStoragePath);
+        if (delNewTaskErr) console.warn('Could not remove newStoragePath queue task on OCC rollback:', delNewTaskErr);
       } else {
-        // Mark as compensation_failed for immediate Cron retry if physical removal failed
-        void supabaseAdmin
+        const { error: updateNewTaskErr } = await supabaseAdmin
           .from('receipt_file_cleanup_queue')
           .update({
             reason: 'compensation_failed',
@@ -194,6 +226,7 @@ export async function POST(request: Request, context: UploadReceiptContext) {
             updated_at: new Date().toISOString(),
           })
           .eq('storage_path', newStoragePath);
+        if (updateNewTaskErr) console.error('Could not update compensation_failed for newStoragePath:', updateNewTaskErr);
       }
 
       return NextResponse.json(
@@ -202,27 +235,48 @@ export async function POST(request: Request, context: UploadReceiptContext) {
       );
     }
 
-    // 6. DB update succeeded: Unbind newStoragePath from cleanup queue
-    void supabaseAdmin
+    // Step 6: DB update succeeded -> Unbind newStoragePath queue task (If error, warn only; DO NOT reject 200 response)
+    const { error: unbindError } = await supabaseAdmin
       .from('receipt_file_cleanup_queue')
       .delete()
       .eq('storage_path', newStoragePath);
 
-    // 7. Cleanup previous file after DB successfully points to newStoragePath
+    if (unbindError) {
+      console.warn('Current receipt cleanup task could not be removed:', unbindError);
+    }
+
+    // Step 7: Use after() to safely clean up old storage file after DB pointer successfully points to newStoragePath
     if (previousStoragePath && previousStoragePath !== newStoragePath) {
-      void supabaseAdmin.storage
-        .from('wishlist-receipts')
-        .remove([previousStoragePath])
-        .then(({ error: oldRemoveError }) => {
-          if (!oldRemoveError) {
-            void supabaseAdmin
-              .from('receipt_file_cleanup_queue')
-              .delete()
-              .eq('storage_path', previousStoragePath);
-          } else {
-            console.warn(`Could not remove old receipt file ${previousStoragePath}, queue will retry:`, oldRemoveError);
+      after(async () => {
+        const { error: removeError } = await supabaseAdmin.storage
+          .from('wishlist-receipts')
+          .remove([previousStoragePath]);
+
+        if (!removeError) {
+          const { error: queueDeleteError } = await supabaseAdmin
+            .from('receipt_file_cleanup_queue')
+            .delete()
+            .eq('storage_path', previousStoragePath);
+
+          if (queueDeleteError) {
+            console.warn('Old receipt removed but queue task remained:', queueDeleteError);
           }
-        });
+          return;
+        }
+
+        const { error: retryUpdateError } = await supabaseAdmin
+          .from('receipt_file_cleanup_queue')
+          .update({
+            last_error: removeError.message,
+            delete_after: calculateNextRetryDate(1).toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq('storage_path', previousStoragePath);
+
+        if (retryUpdateError) {
+          console.error('Could not update old receipt cleanup retry:', retryUpdateError);
+        }
+      });
     }
 
     return NextResponse.json({

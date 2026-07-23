@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createSupabaseAdminClient } from '@/lib/server/supabaseAdmin';
-import { isUuid, isValidReceiptStoragePath } from '@/app/api/wishlists/receiptApiUtils';
+import { isUuid } from '@/app/api/wishlists/receiptApiUtils';
+import { validateReceiptDownloadEligibility } from './downloadApiUtils';
 
 export const runtime = 'nodejs';
 
@@ -21,22 +22,24 @@ export async function GET(request: Request, context: DownloadReceiptContext) {
     const supabaseAdmin = createSupabaseAdminClient();
     const { data: wishlist, error: queryError } = await supabaseAdmin
       .from('wishlists')
-      .select('id, receipt_storage_path')
+      .select('id, receipt_storage_path, receipt_expires_at')
       .eq('receipt_token', token)
       .maybeSingle();
 
-    if (queryError || !wishlist || !wishlist.receipt_storage_path) {
-      return NextResponse.json({ error: 'Receipt not found.' }, { status: 404 });
+    if (queryError) {
+      console.error('Database query error downloading receipt:', queryError);
+      return NextResponse.json({ error: 'Failed to query receipt.' }, { status: 500 });
     }
 
-    // Strict path validation to prevent downloading arbitrary storage paths
-    if (!isValidReceiptStoragePath(wishlist.receipt_storage_path)) {
-      return NextResponse.json({ error: 'Invalid receipt storage path.' }, { status: 404 });
+    // Eligibility check for expiration (returns 410 if expired, 404 if missing/invalid)
+    const check = validateReceiptDownloadEligibility(wishlist);
+    if (check.status !== 200) {
+      return NextResponse.json({ error: check.error }, { status: check.status });
     }
 
     const { data: fileBlob, error: downloadError } = await supabaseAdmin.storage
       .from('wishlist-receipts')
-      .download(wishlist.receipt_storage_path);
+      .download(wishlist!.receipt_storage_path!);
 
     if (downloadError || !fileBlob) {
       console.error('Supabase Storage download error:', downloadError);

@@ -9,6 +9,7 @@ export default function ReceiptActions({ token }: { token: string }) {
   const [file, setFile] = useState<File | null>(null);
   const [preloadStatus, setPreloadStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [shareError, setShareError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -61,11 +62,11 @@ export default function ReceiptActions({ token }: { token: string }) {
       isMounted = false;
       controller.abort();
     };
-  }, [downloadUrl]);
+  }, [downloadUrl, reloadKey]);
 
   const handleShare = async () => {
     setShareError(null);
-    if (!file) return;
+    if (!file || preloadStatus !== 'ready') return;
 
     if (canShareFile(file)) {
       try {
@@ -93,7 +94,7 @@ export default function ReceiptActions({ token }: { token: string }) {
         <button
           className={styles.shareBtn}
           onClick={handleShare}
-          disabled={preloadStatus === 'loading'}
+          disabled={preloadStatus !== 'ready'}
         >
           {preloadStatus === 'loading'
             ? 'Preparing Share...'
@@ -107,9 +108,17 @@ export default function ReceiptActions({ token }: { token: string }) {
 
       {shareError && <p className={styles.errorMessage}>{shareError}</p>}
       {preloadStatus === 'error' && (
-        <p className={styles.hintMessage}>
-          Note: Direct system file share preloading failed. You can still use the Download Receipt button above.
-        </p>
+        <div className={styles.errorContainer}>
+          <p className={styles.hintMessage}>
+            Direct system file share preloading failed. You can retry preparing or use the Download button above.
+          </p>
+          <button
+            className={styles.retryShareBtn}
+            onClick={() => setReloadKey(prev => prev + 1)}
+          >
+            Retry Preparing Share
+          </button>
+        </div>
       )}
     </div>
   );
