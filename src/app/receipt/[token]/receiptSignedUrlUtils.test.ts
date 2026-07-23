@@ -9,18 +9,27 @@ test('getReceiptSignedUrlTtlSeconds returns 3600 for remaining 2 hours', () => {
   assert.strictEqual(ttl, 3600);
 });
 
-test('getReceiptSignedUrlTtlSeconds returns 1800 for remaining 30 minutes', () => {
+test('getReceiptSignedUrlTtlSeconds deducts 5s safety margin for remaining 30 minutes (returns 1795)', () => {
   const now = new Date('2026-07-23T12:00:00Z');
   const expiresAt = new Date('2026-07-23T12:30:00Z').toISOString();
   const ttl = getReceiptSignedUrlTtlSeconds(expiresAt, now);
-  assert.strictEqual(ttl, 1800);
+  assert.strictEqual(ttl, 1795);
 });
 
-test('getReceiptSignedUrlTtlSeconds returns 1 for remaining 1 second', () => {
+test('getReceiptSignedUrlTtlSeconds returns 5 for remaining 10 seconds', () => {
   const now = new Date('2026-07-23T12:00:00Z');
-  const expiresAt = new Date('2026-07-23T12:00:01Z').toISOString();
+  const expiresAt = new Date('2026-07-23T12:00:10Z').toISOString();
   const ttl = getReceiptSignedUrlTtlSeconds(expiresAt, now);
-  assert.strictEqual(ttl, 1);
+  assert.strictEqual(ttl, 5);
+});
+
+test('getReceiptSignedUrlTtlSeconds returns null for remaining 5 seconds or less', () => {
+  const now = new Date('2026-07-23T12:00:00Z');
+  const expires5s = new Date('2026-07-23T12:00:05Z').toISOString();
+  const expires1s = new Date('2026-07-23T12:00:01Z').toISOString();
+
+  assert.strictEqual(getReceiptSignedUrlTtlSeconds(expires5s, now), null);
+  assert.strictEqual(getReceiptSignedUrlTtlSeconds(expires1s, now), null);
 });
 
 test('getReceiptSignedUrlTtlSeconds returns null for expired receipt', () => {

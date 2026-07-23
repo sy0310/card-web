@@ -13,6 +13,12 @@ export type QueueTaskRecord = {
   last_error: string | null;
 };
 
+export const INITIAL_RECEIPT_CLEANUP_DELAY_MS = 60 * 60 * 1000;
+
+export function getInitialCleanupDeleteAfter(now: Date = new Date()): Date {
+  return new Date(now.getTime() + INITIAL_RECEIPT_CLEANUP_DELAY_MS);
+}
+
 export function calculateNextRetryDate(attemptCount: number, now: Date = new Date()): Date {
   const currentMs = now.getTime();
   let delayMs: number;

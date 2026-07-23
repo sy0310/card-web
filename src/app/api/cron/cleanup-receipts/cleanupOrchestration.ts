@@ -1,7 +1,9 @@
 import { isValidReceiptStoragePath } from '@/app/api/wishlists/receiptApiUtils';
 import {
   calculateNextRetryDate,
+  getInitialCleanupDeleteAfter,
   QueueTaskRecord,
+  ReceiptQueueReason,
 } from './cleanupQueueUtils';
 
 export type OperationResult =
@@ -18,8 +20,28 @@ export type WishlistExpiredRecord = {
   receipt_expires_at: string;
 };
 
+export type QueueUpsertParams = {
+  storagePath: string;
+  wishlistId: string | null;
+  reason: ReceiptQueueReason;
+  deleteAfterIso: string;
+  nowIso: string;
+  attemptCount?: number;
+  lastError?: string | null;
+};
+
+export type QueueEnsureRetryParams = {
+  storagePath: string;
+  wishlistId: string | null;
+  reason: ReceiptQueueReason;
+  attemptCount: number;
+  errorMessage: string;
+  deleteAfterIso: string;
+  nowIso: string;
+};
+
 export type ProcessExpiredReceiptDeps = {
-  queueUpsert: (storagePath: string, wishlistId: string, nowIso: string) => Promise<OperationResult>;
+  queueUpsert: (params: QueueUpsertParams) => Promise<OperationResult>;
   clearWishlistStoragePath: (params: {
     wishlistId: string;
     expectedStoragePath: string;
@@ -27,13 +49,7 @@ export type ProcessExpiredReceiptDeps = {
   }) => Promise<OperationResult>;
   removeStorageFile: (storagePath: string) => Promise<StorageRemovalResult>;
   queueDelete: (storagePath: string) => Promise<OperationResult>;
-  queueUpdateRetry: (
-    storagePath: string,
-    attemptCount: number,
-    errorMsg: string,
-    nextRetryIso: string,
-    nowIso: string,
-  ) => Promise<OperationResult>;
+  queueEnsureRetry: (params: QueueEnsureRetryParams) => Promise<OperationResult>;
 };
 
 export type ProcessCleanupQueueTaskDeps = {
@@ -42,13 +58,7 @@ export type ProcessCleanupQueueTaskDeps = {
   ) => Promise<{ ok: true; isReferenced: boolean } | { ok: false; error: string }>;
   removeStorageFile: (storagePath: string) => Promise<StorageRemovalResult>;
   queueDelete: (storagePath: string) => Promise<OperationResult>;
-  queueUpdateRetry: (
-    storagePath: string,
-    attemptCount: number,
-    errorMsg: string,
-    nextRetryIso: string,
-    nowIso: string,
-  ) => Promise<OperationResult>;
+  queueEnsureRetry: (params: QueueEnsureRetryParams) => Promise<OperationResult>;
 };
 
 export type ProcessExpiredResult = {
@@ -68,7 +78,7 @@ export type ProcessQueueTaskResult = {
 
 /**
  * Processes a single expired wishlist receipt record.
- * Order: 1. queueUpsert -> 2. clearWishlistStoragePath -> 3. removeStorageFile -> 4. queueDelete (or queueUpdateRetry)
+ * Order: 1. queueUpsert (fallback +1h) -> 2. clearWishlistStoragePath -> 3. removeStorageFile -> 4. queueDelete (or queueEnsureRetry)
  */
 export async function processExpiredReceipt(
   record: WishlistExpiredRecord,
@@ -81,9 +91,19 @@ export async function processExpiredReceipt(
   }
 
   const nowIso = now.toISOString();
+  const initialDeleteAfterIso = getInitialCleanupDeleteAfter(now).toISOString();
 
-  // Step 1: Queue upsert
-  const queueResult = await deps.queueUpsert(storagePath, record.id, nowIso);
+  // Step 1: Enqueue expired task with +1h fallback delay
+  const queueResult = await deps.queueUpsert({
+    storagePath,
+    wishlistId: record.id,
+    reason: 'expired_receipt',
+    deleteAfterIso: initialDeleteAfterIso,
+    nowIso,
+    attemptCount: 0,
+    lastError: null,
+  });
+
   if (!queueResult.ok) {
     console.error(`Could not enqueue expired receipt for ${storagePath}:`, queueResult.error);
     // CRITICAL FAIL-CLOSED: Queue insertion failed! MUST NOT clear wishlist storage path or remove storage file.
@@ -108,17 +128,20 @@ export async function processExpiredReceipt(
 
   if (!removeResult.ok) {
     console.error(`Storage removal failed for ${storagePath}:`, removeResult.error);
-    // DB path is already cleared, but Storage file removal failed. Schedule retry in queue.
-    const nextRetry = calculateNextRetryDate(1, now).toISOString();
-    const retryResult = await deps.queueUpdateRetry(
+    // DB path is already cleared, but Storage file removal failed. Ensure retry task exists in queue via upsert.
+    const nextRetryIso = calculateNextRetryDate(1, now).toISOString();
+    const retryResult = await deps.queueEnsureRetry({
       storagePath,
-      1,
-      removeResult.error,
-      nextRetry,
+      wishlistId: record.id,
+      reason: 'expired_receipt',
+      attemptCount: 1,
+      errorMessage: removeResult.error,
+      deleteAfterIso: nextRetryIso,
       nowIso,
-    );
+    });
+
     if (!retryResult.ok) {
-      console.error(`Could not update queue retry state for ${storagePath}:`, retryResult.error);
+      console.error(`CRITICAL: Could not persist receipt cleanup retry task for ${storagePath}:`, retryResult.error);
     }
     return { storageDeleted: false, storageAlreadyMissing: false, queueCompleted: false, failed: true };
   }
@@ -146,6 +169,7 @@ export async function processExpiredReceipt(
 /**
  * Processes a single cleanup queue task.
  * Path format validation -> Ref query (limit 1) -> If active: queueDelete -> If unreferenced: removeStorageFile -> queueDelete
+ * Retry uses queueEnsureRetry to preserve task metadata (wishlist_id & reason).
  */
 export async function processCleanupQueueTask(
   task: QueueTaskRecord,
@@ -158,16 +182,18 @@ export async function processCleanupQueueTask(
   // Path format validation
   if (!isValidReceiptStoragePath(path)) {
     const nextAttempt = task.attempt_count + 1;
-    const nextRetry = calculateNextRetryDate(nextAttempt, now).toISOString();
-    const retryResult = await deps.queueUpdateRetry(
-      path,
-      nextAttempt,
-      'Invalid storage path format',
-      nextRetry,
+    const nextRetryIso = calculateNextRetryDate(nextAttempt, now).toISOString();
+    const retryResult = await deps.queueEnsureRetry({
+      storagePath: path,
+      wishlistId: task.wishlist_id,
+      reason: task.reason,
+      attemptCount: nextAttempt,
+      errorMessage: 'Invalid storage path format',
+      deleteAfterIso: nextRetryIso,
       nowIso,
-    );
+    });
     if (!retryResult.ok) {
-      console.error(`Could not update queue error for invalid path ${path}:`, retryResult.error);
+      console.error(`Could not ensure retry queue error for invalid path ${path}:`, retryResult.error);
     }
     return { storageDeleted: false, storageAlreadyMissing: false, queueCompleted: false, skippedReferenced: false, failed: true };
   }
@@ -178,16 +204,18 @@ export async function processCleanupQueueTask(
   if (!refResult.ok) {
     console.error(`Error checking wishlist reference for ${path}:`, refResult.error);
     const nextAttempt = task.attempt_count + 1;
-    const nextRetry = calculateNextRetryDate(nextAttempt, now).toISOString();
-    const retryResult = await deps.queueUpdateRetry(
-      path,
-      nextAttempt,
-      refResult.error,
-      nextRetry,
+    const nextRetryIso = calculateNextRetryDate(nextAttempt, now).toISOString();
+    const retryResult = await deps.queueEnsureRetry({
+      storagePath: path,
+      wishlistId: task.wishlist_id,
+      reason: task.reason,
+      attemptCount: nextAttempt,
+      errorMessage: refResult.error,
+      deleteAfterIso: nextRetryIso,
       nowIso,
-    );
+    });
     if (!retryResult.ok) {
-      console.error(`Could not update retry state on ref query error for ${path}:`, retryResult.error);
+      console.error(`Could not ensure retry state on ref query error for ${path}:`, retryResult.error);
     }
     return { storageDeleted: false, storageAlreadyMissing: false, queueCompleted: false, skippedReferenced: false, failed: true };
   }
@@ -207,16 +235,18 @@ export async function processCleanupQueueTask(
 
   if (!removeResult.ok) {
     const nextAttempt = task.attempt_count + 1;
-    const nextRetry = calculateNextRetryDate(nextAttempt, now).toISOString();
-    const retryResult = await deps.queueUpdateRetry(
-      path,
-      nextAttempt,
-      removeResult.error,
-      nextRetry,
+    const nextRetryIso = calculateNextRetryDate(nextAttempt, now).toISOString();
+    const retryResult = await deps.queueEnsureRetry({
+      storagePath: path,
+      wishlistId: task.wishlist_id,
+      reason: task.reason,
+      attemptCount: nextAttempt,
+      errorMessage: removeResult.error,
+      deleteAfterIso: nextRetryIso,
       nowIso,
-    );
+    });
     if (!retryResult.ok) {
-      console.error(`Could not update retry state for ${path}:`, retryResult.error);
+      console.error(`Could not ensure retry state for ${path}:`, retryResult.error);
     }
     return { storageDeleted: false, storageAlreadyMissing: false, queueCompleted: false, skippedReferenced: false, failed: true };
   }

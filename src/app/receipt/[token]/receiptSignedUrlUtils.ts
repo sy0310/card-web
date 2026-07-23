@@ -1,3 +1,5 @@
+export const SIGNED_URL_EXPIRY_SAFETY_SECONDS = 5;
+
 export function getReceiptSignedUrlTtlSeconds(
   expiresAt: string | null | undefined,
   now: Date = new Date(),
@@ -12,9 +14,11 @@ export function getReceiptSignedUrlTtlSeconds(
   }
 
   const remainingSeconds = Math.floor((expiresAtMs - now.getTime()) / 1000);
-  if (remainingSeconds <= 0) {
+  const safeRemainingSeconds = remainingSeconds - SIGNED_URL_EXPIRY_SAFETY_SECONDS;
+
+  if (safeRemainingSeconds <= 0) {
     return null;
   }
 
-  return Math.max(1, Math.min(3600, remainingSeconds));
+  return Math.min(3600, safeRemainingSeconds);
 }

@@ -43,16 +43,24 @@ export async function GET(request: Request) {
     let totalFailed = 0;
 
     const expiredDeps: ProcessExpiredReceiptDeps = {
-      queueUpsert: async (storagePath, wishlistId, nowIsoStr) => {
+      queueUpsert: async (params) => {
         const { error } = await supabaseAdmin
           .from('receipt_file_cleanup_queue')
-          .upsert({
-            storage_path: storagePath,
-            wishlist_id: wishlistId,
-            reason: 'expired_receipt',
-            delete_after: nowIsoStr,
-            updated_at: nowIsoStr,
-          });
+          .upsert(
+            {
+              storage_path: params.storagePath,
+              wishlist_id: params.wishlistId,
+              reason: params.reason,
+              delete_after: params.deleteAfterIso,
+              attempt_count: params.attemptCount ?? 0,
+              last_error: params.lastError ?? null,
+              updated_at: params.nowIso,
+            },
+            {
+              onConflict: 'storage_path',
+              ignoreDuplicates: false,
+            },
+          );
         return error ? { ok: false, error: error.message } : { ok: true };
       },
       clearWishlistStoragePath: async ({ wishlistId, expectedStoragePath, expectedExpiresAt }) => {
@@ -95,16 +103,24 @@ export async function GET(request: Request) {
           .eq('storage_path', storagePath);
         return error ? { ok: false, error: error.message } : { ok: true };
       },
-      queueUpdateRetry: async (storagePath, attemptCount, errorMsg, nextRetryIso, nowIsoStr) => {
+      queueEnsureRetry: async (params) => {
         const { error } = await supabaseAdmin
           .from('receipt_file_cleanup_queue')
-          .update({
-            attempt_count: attemptCount,
-            last_error: errorMsg,
-            delete_after: nextRetryIso,
-            updated_at: nowIsoStr,
-          })
-          .eq('storage_path', storagePath);
+          .upsert(
+            {
+              storage_path: params.storagePath,
+              wishlist_id: params.wishlistId,
+              reason: params.reason,
+              attempt_count: params.attemptCount,
+              last_error: params.errorMessage,
+              delete_after: params.deleteAfterIso,
+              updated_at: params.nowIso,
+            },
+            {
+              onConflict: 'storage_path',
+              ignoreDuplicates: false,
+            },
+          );
         return error ? { ok: false, error: error.message } : { ok: true };
       },
     };
@@ -125,7 +141,7 @@ export async function GET(request: Request) {
       },
       removeStorageFile: expiredDeps.removeStorageFile,
       queueDelete: expiredDeps.queueDelete,
-      queueUpdateRetry: expiredDeps.queueUpdateRetry,
+      queueEnsureRetry: expiredDeps.queueEnsureRetry,
     };
 
     // --- PART 1: Process Expired Receipt Records ---
@@ -162,6 +178,7 @@ export async function GET(request: Request) {
     }
 
     // --- PART 2: Process Cleanup Queue Due Tasks (delete_after <= now) ---
+    // Newly registered expired-receipt fallback tasks use a future delete_after (now + 1h), so they cannot be selected again during this run.
     const remainingBatchSize = Math.max(0, MAX_CLEANUP_BATCH_SIZE - totalSelected);
     if (remainingBatchSize > 0) {
       const { data: queueTasks, error: queueQueryError } = await supabaseAdmin
