@@ -51,6 +51,8 @@ import {
 
 type AdminTab = 'inventory' | 'wishlists' | 'analytics' | 'settings';
 
+const ADMIN_INVENTORY_PAGE_SIZE = 50;
+
 function AvailabilityStatusSelect({
   value,
   onChange,
@@ -207,7 +209,14 @@ export default function AdminDashboard() {
   const [cards, setCards] = useState<AdminCard[]>([]);
   const [wishlists, setWishlists] = useState<Wishlist[]>([]);
   const [loadingCards, setLoadingCards] = useState(true);
+  const [loadingWishlists, setLoadingWishlists] = useState(false);
+  const [inventoryPage, setInventoryPage] = useState(1);
   const [activeTab, setActiveTab] = useState<AdminTab>('inventory');
+  const loadedTabDataRef = useRef({
+    wishlists: false,
+    instagram: false,
+    analytics: false,
+  });
   const [settings, setSettings] = useState<AdminSettings>(defaultAdminSettings);
   const [savingSettings, setSavingSettings] = useState(false);
   const [editingCard, setEditingCard] = useState<AdminCard | null>(null);
@@ -280,6 +289,22 @@ export default function AdminDashboard() {
       )
     );
   }, [cards, searchTerm]);
+
+  const inventoryPageCount = Math.max(
+    1,
+    Math.ceil(filteredCards.length / ADMIN_INVENTORY_PAGE_SIZE),
+  );
+
+  const currentPage = Math.min(inventoryPage, inventoryPageCount);
+
+  const paginatedCards = useMemo(() => {
+    const start = (currentPage - 1) * ADMIN_INVENTORY_PAGE_SIZE;
+
+    return filteredCards.slice(
+      start,
+      start + ADMIN_INVENTORY_PAGE_SIZE,
+    );
+  }, [filteredCards, currentPage]);
 
   const filteredWishlists = useMemo(() => {
     const term = wishlistSearchTerm.toLowerCase().trim();
@@ -412,110 +437,143 @@ export default function AdminDashboard() {
   const fetchCards = useCallback(async () => {
     setLoadingCards(true);
     setSelectedIds([]);
-    let allCards: AdminCard[] = [];
-    let offset = 0;
-    const limit = 1000;
-    let hasMore = true;
+    try {
+      let allCards: AdminCard[] = [];
+      let offset = 0;
+      const limit = 1000;
+      let hasMore = true;
 
-    while (hasMore) {
-      const { data, error } = await supabase
-        .from('cards')
-        .select('*')
-        .range(offset, offset + limit - 1)
-        .order('created_at', { ascending: false });
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from('cards')
+          .select('*')
+          .range(offset, offset + limit - 1)
+          .order('created_at', { ascending: false });
 
-      if (error) {
-        setStatusMessage(`Could not load cards: ${error.message}`);
-        hasMore = false;
-        break;
+        if (error) {
+          setStatusMessage(`Could not load cards: ${error.message}`);
+          hasMore = false;
+          break;
+        }
+
+        if (!data || data.length === 0) {
+          hasMore = false;
+          break;
+        }
+
+        allCards = [...allCards, ...(data as AdminCard[])];
+        if (data.length < limit) {
+          hasMore = false;
+        } else {
+          offset += limit;
+        }
       }
 
-      if (!data || data.length === 0) {
-        hasMore = false;
-        break;
+      if (allCards.length === 0) {
+        setCards([]);
+        setLoadingCards(false);
+        return;
       }
 
-      allCards = [...allCards, ...(data as AdminCard[])];
-      if (data.length < limit) {
-        hasMore = false;
-      } else {
-        offset += limit;
-      }
-    }
-
-    if (allCards.length === 0) {
-      setCards([]);
+      setCards(allCards.map(card => ({
+        ...card,
+        purchase_options: card.purchase_options ?? [],
+      })));
       setLoadingCards(false);
-      return;
-    }
 
-    const optionsByCardId = new Map<string, PurchaseOptionPayload[]>();
-    const cardIds = allCards.map(card => card.id);
-    const optionIdBatchSize = 500;
-    let optionsErrorMessage = '';
-
-    for (let index = 0; index < cardIds.length; index += optionIdBatchSize) {
-      const cardIdBatch = cardIds.slice(index, index + optionIdBatchSize);
-      const { data: optionsData, error: optionsError } = await supabase
-        .from('card_purchase_options')
-        .select('*')
-        .in('card_id', cardIdBatch)
-        .order('sort_order', { ascending: true });
-
-      if (optionsError) {
-        optionsErrorMessage = optionsError.message;
-        break;
+      const cardIds = allCards.map(card => card.id);
+      const optionIdBatchSize = 200;
+      const cardIdBatches: string[][] = [];
+      for (let index = 0; index < cardIds.length; index += optionIdBatchSize) {
+        cardIdBatches.push(cardIds.slice(index, index + optionIdBatchSize));
       }
 
-      for (const option of (optionsData ?? []) as PurchaseOptionPayload[]) {
-        if (!option.card_id) continue;
-        const currentOptions = optionsByCardId.get(option.card_id) ?? [];
-        currentOptions.push(option);
-        optionsByCardId.set(option.card_id, currentOptions);
+      const optionResults = await Promise.all(
+        cardIdBatches.map(cardIdBatch =>
+          supabase
+            .from('card_purchase_options')
+            .select('id, card_id, label, price, min_quantity, max_quantity, is_default, is_active, sort_order, status')
+            .in('card_id', cardIdBatch)
+            .order('sort_order', { ascending: true })
+        )
+      );
+
+      const optionsByCardId = new Map<string, PurchaseOptionPayload[]>();
+      let optionsErrorMessage = '';
+
+      for (const res of optionResults) {
+        if (res.error) {
+          optionsErrorMessage = res.error.message;
+          continue;
+        }
+        for (const option of (res.data ?? []) as PurchaseOptionPayload[]) {
+          if (!option.card_id) continue;
+          const currentOptions = optionsByCardId.get(option.card_id) ?? [];
+          currentOptions.push(option);
+          optionsByCardId.set(option.card_id, currentOptions);
+        }
       }
-    }
 
-    if (optionsErrorMessage) {
-      setStatusMessage(`Cards loaded, but purchase options could not be loaded: ${optionsErrorMessage}`);
-    }
+      if (optionsErrorMessage) {
+        setStatusMessage(`Cards loaded, but purchase options could not be loaded: ${optionsErrorMessage}`);
+      }
 
-    setCards(allCards.map(card => ({
-      ...card,
-      purchase_options: optionsByCardId.get(card.id) ?? [],
-    })));
-    setLoadingCards(false);
+      setCards(prevCards =>
+        prevCards.map(card => ({
+          ...card,
+          purchase_options: optionsByCardId.get(card.id) ?? card.purchase_options ?? [],
+        }))
+      );
+    } catch (err: unknown) {
+      setStatusMessage(`Could not load cards: ${formatAdminFetchError(err, 'Loading cards')}`);
+    } finally {
+      setLoadingCards(false);
+    }
   }, []);
 
   const fetchWishlists = useCallback(async () => {
+    setLoadingWishlists(true);
     setSelectedWishlistIds([]);
-    const { data, error } = await supabase
-      .from('wishlists')
-      .select('*, wishlist_items(*, cards(*))')
-      .order('created_at', { ascending: false });
+    try {
+      const { data, error } = await supabase
+        .from('wishlists')
+        .select('*, wishlist_items(*, cards(*))')
+        .order('created_at', { ascending: false });
 
-    if (error) {
-      setStatusMessage(`Could not load wishlists: ${error.message}`);
-    } else {
-      setWishlists((data ?? []) as Wishlist[]);
+      if (error) {
+        loadedTabDataRef.current.wishlists = false;
+        setStatusMessage(`Could not load wishlists: ${error.message}`);
+      } else {
+        setWishlists((data ?? []) as Wishlist[]);
+      }
+    } catch (err: unknown) {
+      loadedTabDataRef.current.wishlists = false;
+      setStatusMessage(`Could not load wishlists: ${formatAdminFetchError(err, 'Loading wishlists')}`);
+    } finally {
+      setLoadingWishlists(false);
     }
   }, []);
 
   const fetchSettings = useCallback(async () => {
-    const { data, error } = await supabase
-      .from('site_settings')
-      .select('*');
+    try {
+      const { data, error } = await supabase
+        .from('site_settings')
+        .select('*');
 
-    if (error) {
-      setStatusMessage(`Could not load settings: ${error.message}`);
-      return;
-    }
+      if (error) {
+        setStatusMessage(`Could not load settings: ${error.message}`);
+        return;
+      }
 
-    if (data) {
-      const storedSettings = data.reduce(
-        (acc, curr) => ({ ...acc, [curr.key]: curr.value }),
-        {} as Partial<AdminSettings>,
-      );
-      setSettings(normalizeAdminSettings({ ...defaultAdminSettings, ...storedSettings }));
+      if (data) {
+        const storedSettings = data.reduce(
+          (acc, curr) => ({ ...acc, [curr.key]: curr.value }),
+          {} as Partial<AdminSettings>,
+        );
+        setSettings(normalizeAdminSettings({ ...defaultAdminSettings, ...storedSettings }));
+      }
+    } catch (err: unknown) {
+      setStatusMessage(`Could not load settings: ${formatAdminFetchError(err, 'Loading settings')}`);
     }
   }, []);
 
@@ -536,6 +594,7 @@ export default function AdminDashboard() {
       setInstagramStatus(settingsResult.data.status);
       setInstagramSyncLogs(logsResult.data.logs ?? []);
     } catch (error: unknown) {
+      loadedTabDataRef.current.instagram = false;
       setStatusMessage(`Instagram settings unavailable: ${formatAdminFetchError(error, 'Loading Instagram settings')}`);
     }
   }, []);
@@ -549,6 +608,7 @@ export default function AdminDashboard() {
       if (!response.ok || data.error) throw new Error(data.error || 'Could not load analytics.');
       setAnalytics(data);
     } catch (error: unknown) {
+      loadedTabDataRef.current.analytics = false;
       setStatusMessage(`Analytics unavailable: ${formatAdminFetchError(error, 'Loading analytics')}`);
     } finally {
       setLoadingAnalytics(false);
@@ -556,8 +616,8 @@ export default function AdminDashboard() {
   }, [analyticsDays]);
 
   const fetchData = useCallback(async () => {
-    await Promise.all([fetchCards(), fetchWishlists(), fetchSettings(), fetchInstagramData()]);
-  }, [fetchCards, fetchInstagramData, fetchSettings, fetchWishlists]);
+    await Promise.all([fetchCards(), fetchSettings()]);
+  }, [fetchCards, fetchSettings]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
@@ -1356,7 +1416,23 @@ export default function AdminDashboard() {
     setSelectedIds([]);
     setSelectedWishlistIds([]);
     closeWishlistEditor();
-    if (tab === 'analytics') void fetchAnalytics();
+
+    if (tab === 'wishlists') {
+      if (!loadedTabDataRef.current.wishlists) {
+        loadedTabDataRef.current.wishlists = true;
+        void fetchWishlists();
+      }
+    } else if (tab === 'settings') {
+      if (!loadedTabDataRef.current.instagram) {
+        loadedTabDataRef.current.instagram = true;
+        void fetchInstagramData();
+      }
+    } else if (tab === 'analytics') {
+      if (!loadedTabDataRef.current.analytics) {
+        loadedTabDataRef.current.analytics = true;
+        void fetchAnalytics();
+      }
+    }
   };
 
   if (!session) return <div className={styles.loading}>Checking session...</div>;
@@ -1909,7 +1985,7 @@ export default function AdminDashboard() {
                           onClick={() => addWishlistDraftItem(card.id)}
                         >
                           {card.image_url ? (
-                            <img src={card.image_url} alt="" className={styles.microImg} />
+                            <img src={card.image_url} alt="" className={styles.microImg} loading="lazy" decoding="async" />
                           ) : (
                             <div className={styles.microImg} />
                           )}
@@ -1941,7 +2017,7 @@ export default function AdminDashboard() {
                       return (
                         <div key={item.key} className={styles.orderItemEditorRow}>
                           {selectedCard?.image_url ? (
-                            <img src={selectedCard.image_url} alt="" className={styles.microImg} />
+                            <img src={selectedCard.image_url} alt="" className={styles.microImg} loading="lazy" decoding="async" />
                           ) : (
                             <div className={styles.microImg} />
                           )}
@@ -2176,7 +2252,10 @@ export default function AdminDashboard() {
               <input
                 type="text"
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  setInventoryPage(1);
+                }}
                 placeholder="Search card title, group, member, POB or album..."
                 className={styles.searchInput}
               />
@@ -2184,7 +2263,10 @@ export default function AdminDashboard() {
                 <button
                   type="button"
                   className={styles.clearSearchBtn}
-                  onClick={() => setSearchTerm('')}
+                  onClick={() => {
+                    setSearchTerm('');
+                    setInventoryPage(1);
+                  }}
                 >
                   Clear
                 </button>
@@ -2196,125 +2278,162 @@ export default function AdminDashboard() {
                 <p className={styles.emptyText}>Loading inventory...</p>
               ) : cards.length > 0 ? (
                 filteredCards.length > 0 ? (
-                  <table className={styles.table}>
-                    <colgroup>
-                      <col className={styles.selectCol} />
-                      <col className={styles.previewCol} />
-                      <col className={styles.titleCol} />
-                      <col className={styles.groupCol} />
-                      <col className={styles.pobCol} />
-                      <col className={styles.priceCol} />
-                      <col className={styles.inventoryCol} />
-                      <col className={styles.optionsCol} />
-                      <col className={styles.availabilityCol} />
-                      <col className={styles.actionsCol} />
-                    </colgroup>
-                    <thead>
-                      <tr>
-                        <th style={{ width: '45px', textAlign: 'center' }}>
-                          <input
-                            type="checkbox"
-                            checked={filteredCards.length > 0 && selectedIds.length === filteredCards.length}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedIds(filteredCards.map(c => c.id));
-                              } else {
-                                setSelectedIds([]);
+                  <>
+                    <table className={styles.table}>
+                      <colgroup>
+                        <col className={styles.selectCol} />
+                        <col className={styles.previewCol} />
+                        <col className={styles.titleCol} />
+                        <col className={styles.groupCol} />
+                        <col className={styles.pobCol} />
+                        <col className={styles.priceCol} />
+                        <col className={styles.inventoryCol} />
+                        <col className={styles.optionsCol} />
+                        <col className={styles.availabilityCol} />
+                        <col className={styles.actionsCol} />
+                      </colgroup>
+                      <thead>
+                        <tr>
+                          <th style={{ width: '45px', textAlign: 'center' }}>
+                            <input
+                              type="checkbox"
+                              checked={
+                                paginatedCards.length > 0 &&
+                                paginatedCards.every(card => selectedIds.includes(card.id))
                               }
-                            }}
-                          />
-                        </th>
-                        <th>Preview</th>
-                        <th>Title</th>
-                        <th>Group</th>
-                        <th>POB</th>
-                        <th>Price</th>
-                        <th>Inventory</th>
-                        <th>Options</th>
-                        <th>Availability</th>
-                        <th className={styles.actionsHeader}>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredCards.map(card => {
-                        const inventoryPurchaseOptions = getAdminPurchaseOptions(card);
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedIds(prev => Array.from(new Set([...prev, ...paginatedCards.map(c => c.id)])));
+                                } else {
+                                  setSelectedIds(prev => prev.filter(id => !paginatedCards.some(c => c.id === id)));
+                                }
+                              }}
+                            />
+                          </th>
+                          <th>Preview</th>
+                          <th>Title</th>
+                          <th>Group</th>
+                          <th>POB</th>
+                          <th>Price</th>
+                          <th>Inventory</th>
+                          <th>Options</th>
+                          <th>Availability</th>
+                          <th className={styles.actionsHeader}>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {paginatedCards.map(card => {
+                          const inventoryPurchaseOptions = getAdminPurchaseOptions(card);
 
-                        return (
-                          <tr key={card.id}>
-                            <td style={{ textAlign: 'center' }}>
-                              <input
-                                type="checkbox"
-                                checked={selectedIds.includes(card.id)}
-                                onChange={(e) => {
-                                  if (e.target.checked) {
-                                    setSelectedIds(prev => [...prev, card.id]);
-                                  } else {
-                                    setSelectedIds(prev => prev.filter(id => id !== card.id));
-                                  }
-                                }}
-                              />
-                            </td>
-                            <td>
-                              <img src={card.image_url} alt={card.title} className={styles.miniImg} />
-                            </td>
-                            <td>
-                              <div className={styles.cardTitleCell}>
-                                <strong>{card.title}</strong>
-                                <span>{card.member_name || card.album_era || 'No extra metadata'}</span>
-                              </div>
-                            </td>
-                            <td>{card.group_name || '-'}</td>
-                            <td>{card.pob_name || '-'}</td>
-                            <td>${Number(card.price || 0).toFixed(2)}</td>
-                            <td>{card.unlimited_inventory !== false ? 'Unlimited' : (card.inventory_count || 0)}</td>
-                            <td>
-                              <div className={styles.inventoryOptionsList}>
-                                {inventoryPurchaseOptions.map((option, index) => (
-                                  <div
-                                    key={option.id ?? `${option.label}-${index}`}
-                                    className={styles.inventoryOption}
+                          return (
+                            <tr key={card.id}>
+                              <td style={{ textAlign: 'center' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={selectedIds.includes(card.id)}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setSelectedIds(prev => [...prev, card.id]);
+                                    } else {
+                                      setSelectedIds(prev => prev.filter(id => id !== card.id));
+                                    }
+                                  }}
+                                />
+                              </td>
+                              <td>
+                                <img
+                                  src={card.image_url}
+                                  alt={card.title}
+                                  className={styles.miniImg}
+                                  loading="lazy"
+                                  decoding="async"
+                                />
+                              </td>
+                              <td>
+                                <div className={styles.cardTitleCell}>
+                                  <strong>{card.title}</strong>
+                                  <span>{card.member_name || card.album_era || 'No extra metadata'}</span>
+                                </div>
+                              </td>
+                              <td>{card.group_name || '-'}</td>
+                              <td>{card.pob_name || '-'}</td>
+                              <td>${Number(card.price || 0).toFixed(2)}</td>
+                              <td>{card.unlimited_inventory !== false ? 'Unlimited' : (card.inventory_count || 0)}</td>
+                              <td>
+                                <div className={styles.inventoryOptionsList}>
+                                  {inventoryPurchaseOptions.map((option, index) => (
+                                    <div
+                                      key={option.id ?? `${option.label}-${index}`}
+                                      className={styles.inventoryOption}
+                                    >
+                                      <span className={styles.inventoryOptionName}>
+                                        {option.label || 'Single'}
+                                      </span>
+                                      <span className={styles.inventoryOptionPrice}>
+                                        ${Number(option.price || 0).toFixed(2)}
+                                      </span>
+                                      {option.is_default && (
+                                        <span className={styles.inventoryOptionDefault}>Default</span>
+                                      )}
+                                      {option.status !== 'available' && (
+                                        <span className={styles.inventoryOptionInactiveBadge}>{option.status}</span>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </td>
+                              <td>
+                                <span className={`${styles.availabilityBadge} ${styles[`availability_${card.availability_status || 'available'}`]}`}>
+                                  {card.availability_status || 'available'}
+                                </span>
+                              </td>
+
+                              <td className={styles.actionsCell}>
+                                <div className={styles.actionGroup}>
+                                  <button className={styles.editBtn} onClick={() => handleEditCard(card)}>
+                                    Edit
+                                  </button>
+                                  <button
+                                    className={styles.deleteInlineBtn}
+                                    onClick={() => void handleDeleteCard(card)}
+                                    disabled={deletingCardId === card.id}
                                   >
-                                    <span className={styles.inventoryOptionName}>
-                                      {option.label || 'Single'}
-                                    </span>
-                                    <span className={styles.inventoryOptionPrice}>
-                                      ${Number(option.price || 0).toFixed(2)}
-                                    </span>
-                                    {option.is_default && (
-                                      <span className={styles.inventoryOptionDefault}>Default</span>
-                                    )}
-                                    {option.status !== 'available' && (
-                                      <span className={styles.inventoryOptionInactiveBadge}>{option.status}</span>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
-                            </td>
-                            <td>
-                              <span className={`${styles.availabilityBadge} ${styles[`availability_${card.availability_status || 'available'}`]}`}>
-                                {card.availability_status || 'available'}
-                              </span>
-                            </td>
-
-                            <td className={styles.actionsCell}>
-                              <div className={styles.actionGroup}>
-                                <button className={styles.editBtn} onClick={() => handleEditCard(card)}>
-                                  Edit
-                                </button>
-                                <button
-                                  className={styles.deleteInlineBtn}
-                                  onClick={() => void handleDeleteCard(card)}
-                                  disabled={deletingCardId === card.id}
-                                >
-                                  {deletingCardId === card.id ? 'Archiving' : 'Archive'}
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                                    {deletingCardId === card.id ? 'Archiving' : 'Archive'}
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    <div className={styles.paginationControls}>
+                      <div className={styles.paginationInfo}>
+                        Showing {filteredCards.length === 0 ? 0 : (currentPage - 1) * ADMIN_INVENTORY_PAGE_SIZE + 1}–{Math.min(currentPage * ADMIN_INVENTORY_PAGE_SIZE, filteredCards.length)} of {filteredCards.length}
+                      </div>
+                      <div className={styles.paginationButtons}>
+                        <button
+                          type="button"
+                          className={styles.secondaryBtn}
+                          onClick={() => setInventoryPage(Math.max(1, currentPage - 1))}
+                          disabled={currentPage <= 1}
+                        >
+                          Previous
+                        </button>
+                        <span className={styles.pageIndicator}>
+                          Page {currentPage} of {inventoryPageCount}
+                        </span>
+                        <button
+                          type="button"
+                          className={styles.secondaryBtn}
+                          onClick={() => setInventoryPage(Math.min(inventoryPageCount, currentPage + 1))}
+                          disabled={currentPage >= inventoryPageCount}
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  </>
                 ) : (
                   <div className={styles.placeholder}>
                     <p>No matching cards found.</p>
@@ -2399,7 +2518,9 @@ export default function AdminDashboard() {
             </div>
 
             <div className={styles.inventoryList}>
-              {filteredWishlists.length > 0 ? (
+              {loadingWishlists ? (
+                <p className={styles.emptyText}>Loading wishlists...</p>
+              ) : filteredWishlists.length > 0 ? (
                 <table className={styles.table}>
                   <thead>
                     <tr>
@@ -2469,6 +2590,8 @@ export default function AdminDashboard() {
                                     src={item.image_url_snapshot || item.cards?.image_url || ''}
                                     alt=""
                                     className={styles.microImg}
+                                    loading="lazy"
+                                    decoding="async"
                                   />
                                 ) : (
                                   <div className={styles.microImg} />
